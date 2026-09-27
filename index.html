@@ -349,7 +349,32 @@ const Engine = (() => {
   const QLABEL = { '': '', m: 'm', '7': '7', maj7: 'maj7', m7: 'm7', m7b5: 'm7(♭5)', dim: 'dim', dim7: 'dim7', aug: 'aug', sus4: 'sus4', sus2: 'sus2', '7sus4': '7sus4', '6': '6', m6: 'm6', add9: 'add9', madd9: 'm(add9)', '9': '9', maj9: 'maj9', m9: 'm9', '69': '6/9', '13': '13', '7b9': '7(♭9)', mmaj7: 'm(maj7)', '7#5': '7(♯5)' };
   // 코드 종류 선택판 순서 (쉬운 것 → 어려운 것)
   const QLIST = ['', 'm', '7', 'maj7', 'm7', 'sus4', '7sus4', '6', 'm6', 'add9', '9', 'maj9', 'm9', '69', '13', '7b9', 'm7b5', 'dim', 'dim7', 'aug', 'sus2', 'mmaj7'];
-  const ALIAS = { '': '', M: '', maj: '', m: 'm', min: 'm', mi: 'm', '-': 'm', '7': '7', dom7: '7', maj7: 'maj7', M7: 'maj7', Maj7: 'maj7', 'Δ': 'maj7', 'Δ7': 'maj7', ma7: 'maj7', m7: 'm7', min7: 'm7', '-7': 'm7', mi7: 'm7', m7b5: 'm7b5', 'm7(b5)': 'm7b5', 'ø': 'm7b5', 'ø7': 'm7b5', dim: 'dim', '°': 'dim', o: 'dim', dim7: 'dim7', '°7': 'dim7', o7: 'dim7', aug: 'aug', '+': 'aug', sus4: 'sus4', sus: 'sus4', sus2: 'sus2', '7sus4': '7sus4', '7sus': '7sus4', '6': '6', m6: 'm6', add9: 'add9', '(add9)': 'add9', madd9: 'madd9', 'm(add9)': 'madd9', '9': '9', maj9: 'maj9', M9: 'maj9', m9: 'm9', '69': '69', '6/9': '69', '6(9)': '69', '13': '13', '7b9': '7b9', '7(b9)': '7b9', mmaj7: 'mmaj7', 'm(maj7)': 'mmaj7', mM7: 'mmaj7', '7#5': '7#5', '7(#5)': '7#5', 'aug7': '7#5' };
+  const ALIAS = { '': '', M: '', maj: '', m: 'm', min: 'm', mi: 'm', '-': 'm', '7': '7', dom7: '7', maj7: 'maj7', M7: 'maj7', Maj7: 'maj7', 'Δ': 'maj7', 'Δ7': 'maj7', ma7: 'maj7', m7: 'm7', min7: 'm7', '-7': 'm7', mi7: 'm7', m7b5: 'm7b5', 'm7(b5)': 'm7b5', 'ø': 'm7b5', 'ø7': 'm7b5', dim: 'dim', '°': 'dim', o: 'dim', dim7: 'dim7', '°7': 'dim7', o7: 'dim7', aug: 'aug', '+': 'aug', sus4: 'sus4', sus: 'sus4', sus2: 'sus2', '7sus4': '7sus4', '7sus': '7sus4', '6': '6', m6: 'm6', add9: 'add9', '(add9)': 'add9', madd9: 'madd9', 'm(add9)': 'madd9', '9': '9', maj9: 'maj9', M9: 'maj9', m9: 'm9', '69': '69', '6/9': '69', '6(9)': '69', '13': '13', '7b9': '7b9', '7(b9)': '7b9', mmaj7: 'mmaj7', 'm(maj7)': 'mmaj7', mM7: 'mmaj7', '7#5': '7#5', '7(#5)': '7#5', 'aug7': '7#5',
+    '2': 'add9', add2: 'add9', '(add2)': 'add9', 'add9)': 'add9', m2: 'madd9', madd2: 'madd9', 'm(add2)': 'madd9',
+    '+7': '7#5', '7+': '7+5', '7aug': '7#5', '7+5': '7#5', augmented: 'aug', diminished: 'dim',
+    '7(13)': '13', '7(9)': '9', '7(9,13)': '13', 'M7(9)': 'maj9', 'maj7(9)': 'maj9', 'm7(9)': 'm9', 'm7(11)': 'm7', m11: 'm7', '11': '7sus4', maj13: 'maj9', M13: 'maj9', 'M9': 'maj9',
+    mM7: 'mmaj7', 'mΔ7': 'mmaj7', 'mMaj7': 'mmaj7', 'min(maj7)': 'mmaj7', '-(maj7)': 'mmaj7', 'mΔ': 'mmaj7',
+    '6(9)': '69', 'm6/9': 'm6', 'm69': 'm6', 'sus4(7)': '7sus4', '7(sus4)': '7sus4', 'sus2(add4)': 'sus2', '5': '', 'no3': '', '(no3)': '' };
+  ALIAS['7+5'] = '7#5';
+  // 모르는 표기라도 버리지 않고 가장 가까운 코드로 (예: A7(b13) → A7, Gmaj7(#11) → Gmaj7)
+  function looseQual(t) {
+    const x = t.replace(/\s/g, '');
+    if (ALIAS[x] !== undefined) return ALIAS[x];
+    const base = x.replace(/\(.*?\)/g, '').replace(/(add|no)\d+/g, '');
+    if (ALIAS[base] !== undefined) return ALIAS[base];
+    const minor = /^(m(?!aj)|min|mi|-)/.test(base);
+    if (/dim|°|o7/.test(base)) return /7/.test(base) ? 'dim7' : 'dim';
+    if (/ø|m7b5|m7-5/.test(base)) return 'm7b5';
+    if (/sus/.test(base)) return /7|9|11|13/.test(base) ? '7sus4' : 'sus4';
+    if (/aug|\+|#5/.test(base)) return /7|9/.test(base) ? '7#5' : 'aug';
+    const maj = /maj|M|Δ/.test(base.replace(/^m/, ''));
+    if (minor) return maj ? 'mmaj7' : /7|9|11|13/.test(base) ? 'm7' : /6/.test(base) ? 'm6' : 'm';
+    if (maj) return 'maj7';
+    if (/7|9|11|13/.test(base)) return '7';
+    if (/6/.test(base)) return '6';
+    if (/2|4/.test(base)) return 'add9';
+    return '';
+  }
 
   function parseChord(sym) {
     if (!sym) return null;
@@ -357,8 +382,7 @@ const Engine = (() => {
     const m = /^([A-G])([#b]?)([^/]*)(?:\/([A-G])([#b]?))?$/.exec(s);
     if (!m) return null;
     let r = LET[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
-    const q = ALIAS[m[3].trim()];
-    if (q === undefined) return null;
+    const q = looseQual(m[3].trim());
     const c = { r: mod(r), q };
     if (m[4]) c.b = mod(LET[m[4]] + (m[5] === '#' ? 1 : m[5] === 'b' ? -1 : 0));
     return c;
@@ -2664,7 +2688,9 @@ if (typeof module !== 'undefined') module.exports = Engine;
 
   // ---------- 악보 불러오기: 사진 여러 장 · PDF · MusicXML · 곡 파일 ----------
   const READ_PROMPT = `You are transcribing sheet music (one or more photos or PDF pages, in order), usually a Korean children's song (동요), so a piano teacher can generate accompaniment.
-Transcribe the MELODY line (vocal line / top notes of the right hand) and the chord symbols printed above the staff. If there are several pages, they are consecutive pages of ONE song: continue the bars across pages.
+Transcribe the MELODY line and the chord symbols printed above the staff.
+Where is the melody: if there is a separate vocal/melody staff, use it. If it is a piano arrangement (two staves, no vocal line), the melody is the HIGHEST note of the right hand at each moment (the top of each chord, the stem-up voice); do not write the inner notes.
+Work carefully bar by bar, left to right, system by system. Count the bars on each line before writing, so no bar is skipped or merged. Read each note's position against the staff lines (line or space) and check ledger lines. If there are several pages, they are consecutive pages of ONE song: continue the bars across pages.
 Return ONLY one JSON object, no prose:
 {"title":"<song title as printed, Korean if Korean>","key":"<tonic letter, add # or b, add m for minor, e.g. G, Bb, Em>","meter":"<e.g. 3/4>","bars":[{"notes":["B3:2","D4:2","r:4"],"chords":[{"beat":1,"chord":"G"},{"beat":3,"chord":"D7"}]}],"sections":[{"bar":1,"name":"verse"},{"bar":9,"name":"chorus"}]}
 Rules:
@@ -2673,7 +2699,7 @@ Rules:
 - Every bar must add up to the time signature (2/4=8, 3/4=12, 4/4=16, 6/8=12, 9/8=18, 12/8=24, 2/2=16) except a pickup first bar (못갖춘마디) or a matching short last bar.
 - Unfold all repeats in playing order: repeat signs, 1st/2nd endings, D.C., D.S., Fine, Coda. Write the melody of the first verse only.
 - A note tied over a bar line: write the parts in each bar with the same pitch.
-- "chords": the chord symbols printed in that bar and the beat they start on (beat 1 = downbeat; in 6/8 count dotted-quarter beats). If no chord symbols are printed anywhere, use [] for every bar. Never invent chords.
+- "chords": EVERY chord symbol printed in that bar, copied EXACTLY as printed character by character (e.g. "D2/F#", "F#aug7", "Gadd2", "A7(13)", "EmM7", "GM7", "C/D"), with the beat it starts on — look where the symbol sits above the notes. Bars often have 2–4 chords (beat 1 = downbeat; in 6/8 count dotted-quarter beats). If no chord symbols are printed anywhere, use [] for every bar. Never invent chords.
 - "sections": where each part starts, using bar numbers (1 = first bar) in the unfolded order you wrote. Names: intro, verse, prechorus, chorus, bridge, interlude, outro. Use printed labels (A, B, Verse, Chorus, 후렴, Bridge, rehearsal letters) or, for songs with a clear refrain, your best judgement. For short children's songs with no clear parts, use [].
 - Ignore lyrics, fingering, dynamics and the left-hand part.`;
 
@@ -2705,7 +2731,7 @@ Rules:
     return song;
   }
   // 휴대폰 사진은 커서 그대로 보내면 느리거나 실패해요 → 긴 변 1800px JPEG로 줄임
-  async function shrinkImage(blob, max = 1800) {
+  async function shrinkImage(blob, max = 3000) {
     try {
       const url = URL.createObjectURL(blob);
       const img = new Image();
@@ -2715,7 +2741,7 @@ Rules:
       cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
       const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
       URL.revokeObjectURL(url);
-      const out = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.85));
+      const out = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9));
       return out || blob;
     } catch { return blob; }
   }
@@ -2925,6 +2951,7 @@ Rules:
         ? '지금 쓰는 기기의 Claude 앱에서는 앱이 사진·PDF를 Claude에게 보낼 수 없어요. 대신 Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요. 컴퓨터의 claude.ai에서 열어도 돼요.'
         : '이 화면에서는 Claude에게 악보 읽기를 부탁할 수 없어요. Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요.')),
       preview, input,
+      canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'carefulRead', style: 'margin-top:3px' }), el('span', {}, '꼼꼼하게 읽기 — 음표가 많거나 복잡한 악보에 좋아요. 더 정확하지만 1~3분 걸려요.')) : null,
       canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'fullRead', style: 'margin-top:3px' }), el('span', {}, '피아노 양손 악보를 모두 읽기 (악보 그대로 연주용 · 실험 기능). 체크하지 않으면 멜로디와 코드만 읽어요.')) : null,
       status, el('div', { class: 'row-end' }, go)
     ];
@@ -2983,7 +3010,7 @@ Rules:
         const stream = spin(`악보 ${images.length}개를 읽는 중이에요… (30초~1분)`);
         ctrl = new AbortController();
         const fullMode = !!(document.querySelector('#fullRead') || {}).checked;
-        const j = await sample.json(fullMode ? FULL_PROMPT : READ_PROMPT, { images, modelTier: 'complex', signal: ctrl.signal, onText: ({ text }) => { stream.textContent = text.slice(-240); } });
+        const j = await sample.json(fullMode ? FULL_PROMPT : READ_PROMPT, { images, modelTier: 'complex', careful: !!(document.querySelector('#carefulRead') || {}).checked, signal: ctrl.signal, onText: ({ text }) => { stream.textContent = text.slice(-240); } });
         const song = fullMode ? songFromFullAI(j) : E.fromAI(j);
         if (!song.bars.length) throw { code: 'empty' };
         song.origTonic = song.tonic;

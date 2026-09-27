@@ -40,13 +40,21 @@ async function setupAI() {
     const parts = [String(input)];
     for (const f of [].concat(opts.images || [])) parts.push({ inlineData: { data: await blobToBase64(f), mimeType: f.type || 'image/jpeg' } });
     let lastErr = null;
-    for (const name of models) {
+    const order = opts.careful ? ['gemini-3.8-flash', ...models.filter(m => m !== 'gemini-3.8-flash')] : models;
+    const limit = opts.careful ? 240 : 100;
+    const tries = [];
+    for (const name of order) { tries.push([name, false]); }
+    tries.splice(1, 0, [order[0], true]); // 설정 때문에 거절되면 같은 모델로 기본 설정 재시도
+    for (const [name, plain] of tries) {
       try {
         if (opts.signal && opts.signal.aborted) throw { code: 'cancelled' };
         const gc = json ? { responseMimeType: 'application/json' } : {};
-        // 오래 '생각'하지 않고 바로 읽도록 (속도 ↑)
-        if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: 'low' };
-        else if (/gemini-2\.5/.test(name)) gc.thinkingConfig = { thinkingBudget: 0 };
+        // 보통: 빨리 읽기 / 꼼꼼하게: 더 오래 생각해서 정확하게
+        if (!plain) {
+          if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: opts.careful ? 'high' : 'low' };
+          else if (/gemini-2\.5/.test(name)) gc.thinkingConfig = { thinkingBudget: opts.careful ? 8192 : 0 };
+          if (opts.images && opts.images.length) gc.mediaResolution = 'MEDIA_RESOLUTION_HIGH'; // 작은 음표도 선명하게
+        }
         const model = getGenerativeModel(ai, { model: name, generationConfig: gc });
         const t0 = Date.now();
         const tick = setInterval(() => { if (opts.onText) opts.onText({ text: `${name} 모델로 읽는 중… ${Math.round((Date.now() - t0) / 1000)}초`, delta: '' }); }, 1000);
@@ -54,7 +62,7 @@ async function setupAI() {
         try {
           res = await Promise.race([
             model.generateContent(parts), // 한 번에 받기 (아이폰에서 더 안정적)
-            new Promise((_, bad) => setTimeout(() => bad(new Error('시간 초과 (' + name + ' 100초)')), 100000)),
+            new Promise((_, bad) => setTimeout(() => bad(new Error('시간 초과 (' + name + ' ' + limit + '초)')), limit * 1000)),
             new Promise((_, bad) => opts.signal && opts.signal.addEventListener('abort', () => bad({ code: 'cancelled' })))
           ]);
         } finally { clearInterval(tick); }
@@ -65,6 +73,7 @@ async function setupAI() {
         if (e && e.code === 'cancelled') throw e;
         console.warn(name, '실패', e);
         lastErr = e; // 어떤 오류든 다음 모델로 한 번 더 시도
+        if (!plain && tries[1] && tries[1][0] === name && !/400|invalid|INVALID_ARGUMENT|Unknown name|mediaResolution|thinking/i.test(String(e && e.message))) tries.splice(1, 1);
       }
     }
     const msg = String((lastErr && lastErr.message) || lastErr);
