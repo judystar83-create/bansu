@@ -57,7 +57,8 @@ async function setupAI() {
       }
     }
     const msg = String((lastErr && lastErr.message) || lastErr);
-    throw { code: /app.?check/i.test(msg) ? 'appcheck' : /quota|429|rate|exhausted/i.test(msg) ? 'rate_limited' : 'error', message: msg };
+    console.error('악보 읽기 오류', lastErr);
+    throw { code: /app.?check/i.test(msg) ? 'appcheck' : /\[429\b|\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(msg) ? 'rate_limited' : 'error', message: msg };
   };
   sample = Object.assign((input, opts) => run(input, opts).then(text => ({ text, truncated: false })), {
     json: async (input, opts) => { const t = await run(input, opts, true); const m = t.match(/\{[\s\S]*\}/); return JSON.parse(m ? m[0] : t); },

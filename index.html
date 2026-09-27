@@ -2978,6 +2978,7 @@ Rules:
             code === 'image_rejected' ? '이 사진은 읽을 수 없어요. 다른 사진(JPG, PNG)으로 해 주세요.' :
               code === 'not_granted' ? '읽기 허락이 필요해요. 다시 눌러서 허락해 주세요.' :
                 '악보를 제대로 읽지 못했어요. 더 밝고 반듯한 사진으로 다시 해 보세요.');
+        if (window.STANDALONE && e && e.message) status.append(el('p', { class: 'stream', style: 'margin-top:6px' }, '자세한 내용: ' + String(e.message).slice(0, 400)));
       }
     });
   }
