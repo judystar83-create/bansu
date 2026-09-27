@@ -2822,7 +2822,7 @@ Rules:
     return song;
   }
   // 휴대폰 사진은 커서 그대로 보내면 느리거나 실패해요 → 긴 변 1800px JPEG로 줄임
-  async function shrinkImage(blob, max = 3000) {
+  async function shrinkImage(blob, max = 2200) {
     try {
       const url = URL.createObjectURL(blob);
       const img = new Image();
@@ -3060,7 +3060,7 @@ Rules:
         ? '지금 쓰는 기기의 Claude 앱에서는 앱이 사진·PDF를 Claude에게 보낼 수 없어요. 대신 Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요. 컴퓨터의 claude.ai에서 열어도 돼요.'
         : '이 화면에서는 Claude에게 악보 읽기를 부탁할 수 없어요. Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요.')),
       canAI ? srcRow : null, preview, input, cam,
-      canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'carefulRead', checked: true, style: 'margin-top:3px' }), el('span', {}, '꼼꼼하게 읽기 (추천) — 더 정확하게 읽어요. 1~3분 걸려요. 간단한 동요를 빨리 읽으려면 체크를 빼세요.')) : null,
+      canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'carefulRead', style: 'margin-top:3px' }), el('span', {}, '꼼꼼하게 읽기 — 빨리 읽은 결과가 많이 틀렸을 때만 켜세요. 2분쯤 더 걸려요.')) : null,
       canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'fullRead', style: 'margin-top:3px' }), el('span', {}, '피아노 양손 악보를 모두 읽기 (악보 그대로 연주용 · 실험 기능). 체크하지 않으면 멜로디와 코드만 읽어요.')) : null,
       status, el('div', { class: 'row-end' }, go)
     ];

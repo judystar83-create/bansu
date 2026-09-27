@@ -40,20 +40,22 @@ async function setupAI() {
     const parts = [String(input)];
     for (const f of [].concat(opts.images || [])) parts.push({ inlineData: { data: await blobToBase64(f), mimeType: f.type || 'image/jpeg' } });
     let lastErr = null;
-    const order = opts.careful ? ['gemini-3.8-flash', ...models.filter(m => m !== 'gemini-3.8-flash')] : models;
-    const limit = opts.careful ? 240 : 100;
+    const order = models;
+    const limit = opts.careful ? 150 : 75;
+    const deadline = Date.now() + (opts.careful ? 240 : 150) * 1000; // 전체 최대 시간: 넘으면 멈추고 알려 줘요
     const tries = [];
     for (const name of order) { tries.push([name, false]); }
     tries.splice(1, 0, [order[0], true]); // 설정 때문에 거절되면 같은 모델로 기본 설정 재시도
     for (const [name, plain] of tries) {
       try {
         if (opts.signal && opts.signal.aborted) throw { code: 'cancelled' };
+        if (Date.now() > deadline - 20000) break;
         const gc = json ? { responseMimeType: 'application/json' } : {};
         // 보통: 빨리 읽기 / 꼼꼼하게: 더 오래 생각해서 정확하게
         if (!plain) {
-          if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: opts.careful ? 'high' : 'low' };
-          else if (/gemini-2\.5/.test(name)) gc.thinkingConfig = { thinkingBudget: opts.careful ? 8192 : 0 };
-          if (opts.images && opts.images.length) gc.mediaResolution = 'MEDIA_RESOLUTION_HIGH'; // 작은 음표도 선명하게
+          if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: opts.careful ? 'medium' : 'low' };
+          else if (/gemini-2\.5/.test(name)) gc.thinkingConfig = { thinkingBudget: opts.careful ? 2048 : 0 };
+          if (opts.careful && opts.images && opts.images.length) gc.mediaResolution = 'MEDIA_RESOLUTION_HIGH'; // 작은 음표도 선명하게
         }
         const model = getGenerativeModel(ai, { model: name, generationConfig: gc });
         const t0 = Date.now();
@@ -62,7 +64,7 @@ async function setupAI() {
         try {
           res = await Promise.race([
             model.generateContent(parts), // 한 번에 받기 (아이폰에서 더 안정적)
-            new Promise((_, bad) => setTimeout(() => bad(new Error('시간 초과 (' + name + ' ' + limit + '초)')), limit * 1000)),
+            new Promise((_, bad) => setTimeout(() => bad(new Error('시간 초과 (' + name + ')')), Math.min(limit * 1000, deadline - Date.now()))),
             new Promise((_, bad) => opts.signal && opts.signal.addEventListener('abort', () => bad({ code: 'cancelled' })))
           ]);
         } finally { clearInterval(tick); }
