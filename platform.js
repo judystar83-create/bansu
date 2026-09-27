@@ -42,19 +42,17 @@ async function setupAI() {
     let lastErr = null;
     for (const name of models) {
       try {
+        if (opts.signal && opts.signal.aborted) throw { code: 'cancelled' };
         const model = getGenerativeModel(ai, { model: name, generationConfig: json ? { responseMimeType: 'application/json' } : {} });
-        const res = await model.generateContentStream(parts);
-        let text = '';
-        for await (const ch of res.stream) {
-          if (opts.signal && opts.signal.aborted) throw { code: 'cancelled' };
-          const d = ch.text(); text += d;
-          if (opts.onText) opts.onText({ text, delta: d });
-        }
+        if (opts.onText) opts.onText({ text: `${name} 모델로 읽는 중…`, delta: '' });
+        const res = await model.generateContent(parts); // 한 번에 받기 (아이폰에서 더 안정적)
+        const text = res.response.text();
+        if (opts.onText) opts.onText({ text, delta: text });
         return text;
       } catch (e) {
         if (e && e.code === 'cancelled') throw e;
-        lastErr = e;
-        if (!/not.?found|404|unsupported model|is not supported|429|quota|RESOURCE_EXHAUSTED/i.test(String(e && e.message))) break; // 모델이 없거나 한도가 찼으면 다음 모델로
+        console.warn(name, '실패', e);
+        lastErr = e; // 어떤 오류든 다음 모델로 한 번 더 시도
       }
     }
     const msg = String((lastErr && lastErr.message) || lastErr);
