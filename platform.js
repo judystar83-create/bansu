@@ -53,7 +53,7 @@ async function setupAI() {
       } catch (e) {
         if (e && e.code === 'cancelled') throw e;
         lastErr = e;
-        if (!/not.?found|404|unsupported model|is not supported/i.test(String(e && e.message))) break; // 모델 이름 문제일 때만 다음 모델로
+        if (!/not.?found|404|unsupported model|is not supported|429|quota|RESOURCE_EXHAUSTED/i.test(String(e && e.message))) break; // 모델이 없거나 한도가 찼으면 다음 모델로
       }
     }
     const msg = String((lastErr && lastErr.message) || lastErr);

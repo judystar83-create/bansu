@@ -8,7 +8,7 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "968490880212",
   appId: "1:968490880212:web:dd6dd13e189ec30facff41",
   // 악보 읽기에 쓸 AI 모델 (앞에서부터 차례로 시도)
-  models: ["gemini-3.8-flash", "gemini-3.5-flash"],
+  models: ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
   // App Check(보안 확인) — Fraud Defense(reCAPTCHA Enterprise) 사이트 키
   appCheckSiteKey: "6LdW3NEtAAAAABsROrW3AFvc7he0a2fPNHZfUenX"
 };
