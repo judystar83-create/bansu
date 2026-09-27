@@ -1,3 +1,14 @@
-// Firebase 설정 — 아직 비어 있어요.
-// Firebase 콘솔의 웹 앱 설정 값을 받으면 여기에 넣어요. (Claude가 대신 넣어 드려요)
-window.FIREBASE_CONFIG = null;
+// Firebase 설정 — 반주 앱 전용 프로젝트 (My First Project)
+// 이 값은 웹 앱 안에 원래 들어가는 공개 값이에요. 몰래 쓰는 것을 막는 건 App Check가 해요.
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC7OZVKrpCzSjFypICGQwHl6tig_VIhlY4",
+  authDomain: "project-3b470209-1287-4219-9be.firebaseapp.com",
+  projectId: "project-3b470209-1287-4219-9be",
+  storageBucket: "project-3b470209-1287-4219-9be.firebasestorage.app",
+  messagingSenderId: "968490880212",
+  appId: "1:968490880212:web:dd6dd13e189ec30facff41",
+  // 악보 읽기에 쓸 AI 모델 (앞에서부터 차례로 시도)
+  models: ["gemini-3.8-flash", "gemini-3.5-flash"],
+  // App Check(보안 확인) 사이트 키 — 설정하면 여기에 넣어요
+  appCheckSiteKey: null
+};
