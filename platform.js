@@ -43,9 +43,21 @@ async function setupAI() {
     for (const name of models) {
       try {
         if (opts.signal && opts.signal.aborted) throw { code: 'cancelled' };
-        const model = getGenerativeModel(ai, { model: name, generationConfig: json ? { responseMimeType: 'application/json' } : {} });
-        if (opts.onText) opts.onText({ text: `${name} 모델로 읽는 중…`, delta: '' });
-        const res = await model.generateContent(parts); // 한 번에 받기 (아이폰에서 더 안정적)
+        const gc = json ? { responseMimeType: 'application/json' } : {};
+        // 오래 '생각'하지 않고 바로 읽도록 (속도 ↑)
+        if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: 'low' };
+        else if (/gemini-2\.5/.test(name)) gc.thinkingConfig = { thinkingBudget: 0 };
+        const model = getGenerativeModel(ai, { model: name, generationConfig: gc });
+        const t0 = Date.now();
+        const tick = setInterval(() => { if (opts.onText) opts.onText({ text: `${name} 모델로 읽는 중… ${Math.round((Date.now() - t0) / 1000)}초`, delta: '' }); }, 1000);
+        let res;
+        try {
+          res = await Promise.race([
+            model.generateContent(parts), // 한 번에 받기 (아이폰에서 더 안정적)
+            new Promise((_, bad) => setTimeout(() => bad(new Error('시간 초과 (' + name + ' 100초)')), 100000)),
+            new Promise((_, bad) => opts.signal && opts.signal.addEventListener('abort', () => bad({ code: 'cancelled' })))
+          ]);
+        } finally { clearInterval(tick); }
         const text = res.response.text();
         if (opts.onText) opts.onText({ text, delta: text });
         return text;
