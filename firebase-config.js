@@ -9,6 +9,6 @@ window.FIREBASE_CONFIG = {
   appId: "1:968490880212:web:dd6dd13e189ec30facff41",
   // 악보 읽기에 쓸 AI 모델 (앞에서부터 차례로 시도)
   models: ["gemini-3.8-flash", "gemini-3.5-flash"],
-  // App Check(보안 확인) 사이트 키 — 설정하면 여기에 넣어요
+  // App Check(보안 확인) — Fraud Defense(reCAPTCHA Enterprise) 사이트 키
   appCheckSiteKey: null
 };

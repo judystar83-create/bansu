@@ -30,8 +30,8 @@ async function setupAI() {
   const app = initializeApp(cfg);
   window.FIREBASE_APP = app;
   if (cfg.appCheckSiteKey) {
-    const { initializeAppCheck, ReCaptchaV3Provider } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-check.js`);
-    initializeAppCheck(app, { provider: new ReCaptchaV3Provider(cfg.appCheckSiteKey), isTokenAutoRefreshEnabled: true });
+    const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-check.js`);
+    initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(cfg.appCheckSiteKey), isTokenAutoRefreshEnabled: true });
   }
   const ai = getAI(app, { backend: new GoogleAIBackend() });
   const models = cfg.models || ['gemini-3.8-flash', 'gemini-3.5-flash'];
