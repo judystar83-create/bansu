@@ -7,6 +7,9 @@ window.FIREBASE_CONFIG = {
   storageBucket: "project-3b470209-1287-4219-9be.firebasestorage.app",
   messagingSenderId: "968490880212",
   appId: "1:968490880212:web:dd6dd13e189ec30facff41",
+  // AI 연결 방식: "vertex" = 구글 클라우드 결제(크레딧 사용)
+  aiBackend: "vertex",
+  aiLocation: "global",
   // 악보 읽기에 쓸 AI 모델 (앞에서부터 차례로 시도)
   models: ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
   // App Check(보안 확인) — Fraud Defense(reCAPTCHA Enterprise) 사이트 키

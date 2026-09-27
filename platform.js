@@ -26,14 +26,15 @@ let sample = null;
 async function setupAI() {
   if (!cfg || !cfg.apiKey) return;
   const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
-  const { getAI, getGenerativeModel, GoogleAIBackend } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
+  const { getAI, getGenerativeModel, GoogleAIBackend, VertexAIBackend } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
   const app = initializeApp(cfg);
   window.FIREBASE_APP = app;
   if (cfg.appCheckSiteKey) {
     const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-check.js`);
     initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(cfg.appCheckSiteKey), isTokenAutoRefreshEnabled: true });
   }
-  const ai = getAI(app, { backend: new GoogleAIBackend() });
+  // vertex: 구글 클라우드 결제(무료 체험 크레딧 포함)로 계산 / google: Gemini Developer API(선불 크레딧 필요)
+  const ai = getAI(app, { backend: cfg.aiBackend === 'google' ? new GoogleAIBackend() : new VertexAIBackend(cfg.aiLocation || 'global') });
   const models = cfg.models || ['gemini-3.8-flash', 'gemini-3.5-flash'];
   const run = async (input, opts = {}, json = false) => {
     const parts = [String(input)];
