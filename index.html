@@ -119,6 +119,8 @@ h1,h2{font-family:var(--f-disp);font-weight:400;margin:0;text-wrap:balance}
 .legend .u{width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .score-mode .arr-only{display:none!important}
 #accCard:not(.score-mode) .score-only{display:none!important}
+.welcome-mode #scoreCard,.welcome-mode #chordCard,.welcome-mode #accCard,.welcome-mode .player,.welcome-mode .foot{display:none!important}
+.welcome h2{font-size:22px}
 .sec-tag{margin-left:4px;font-family:var(--f-body);font-size:10.5px;color:var(--accent);font-weight:700}
 .bar.sec-start{border-left:3px solid var(--accent)}
 .sec-edit{display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--line);padding-top:10px}
@@ -211,6 +213,15 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
     </div>
   </header>
 
+  <section class="card welcome" id="welcome" hidden>
+    <h2>악보를 넣으면 반주가 만들어져요</h2>
+    <p class="hint">악보 사진, PDF, 워드, MusicXML 파일을 불러오면 멜로디와 코드를 읽고, 원하는 스타일과 빠르기로 반주를 만들어 줘요.</p>
+    <div class="row-end" style="justify-content:flex-start">
+      <button class="btn primary" id="wImport" type="button">악보 불러오기</button>
+      <button class="btn" id="wLib" type="button">내 곡 열기</button>
+      <button class="btn ghost" id="wExample" type="button">예시 곡(옹달샘)으로 둘러보기</button>
+    </div>
+  </section>
   <section class="card" id="scoreCard">
     <div class="card-h"><span class="step">1 · 악보 확인</span><span class="hint" id="saveState"></span></div>
     <input class="title-in" id="title" aria-label="곡 제목" maxlength="60">
@@ -2622,6 +2633,7 @@ if (typeof module !== 'undefined') module.exports = Engine;
   }
   function loadExample() {
     leaveGuard(() => {
+      store.write(WELCOME_KEY, true);
       Object.assign(S, { song: exampleSong(), level: 'source', overrides: {}, style: 'waltz', tempo: 96, verses: 2, intro: '4', melody: 'off', layers: {}, verseStyles: [], verseEns: [], sectionSet: {}, mode: 'arrange', partInst: [], countIn: true, counter: { on: false, inst: 'str', pos: 'below', amount: 'normal', from: 0 }, lead: 'auto', docId: null, example: true, dirty: false, sel: null });
       fullRender(); touched(false);
     });
@@ -2893,7 +2905,7 @@ Rules:
       go.disabled = false;
     });
     const kids = [
-      el('p', { class: 'hint' }, 'MusicXML과 곡 파일은 바로 열려요. 사진과 PDF는 Claude가 멜로디와 코드를 읽어요. 30초~1분쯤 걸리고 가끔 틀린 음이 있을 수 있어서 읽은 뒤에 꼭 확인해 주세요.'),
+      el('p', { class: 'hint' }, (window.STANDALONE ? 'MusicXML과 곡 파일은 바로 열려요. 사진·PDF·워드는 AI가 멜로디와 코드를 읽어요.' : 'MusicXML과 곡 파일은 바로 열려요. 사진과 PDF는 Claude가 멜로디와 코드를 읽어요.') + ' 30초~1분쯤 걸리고 가끔 틀린 음이 있을 수 있어서 읽은 뒤에 꼭 확인해 주세요.'),
       canAI ? null : el('div', { class: 'notice warn' }, el('span', {}, window.STANDALONE ? '악보 읽기(사진·PDF·워드)가 아직 연결되지 않았어요. Firebase 설정을 마치면 쓸 수 있어요. MusicXML과 곡 파일은 지금도 열 수 있어요.' : sample
         ? '지금 쓰는 기기의 Claude 앱에서는 앱이 사진·PDF를 Claude에게 보낼 수 없어요. 대신 Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요. 컴퓨터의 claude.ai에서 열어도 돼요.'
         : '이 화면에서는 Claude에게 악보 읽기를 부탁할 수 없어요. Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요.')),
@@ -2971,13 +2983,23 @@ Rules:
   }
 
   // ---------- 전체 그리기 ----------
+  const WELCOME_KEY = 'bansu.welcomeDone.v1';
+  function renderWelcome() {
+    const show = S.example && !S.docId && !store.read(WELCOME_KEY);
+    $('#welcome').hidden = !show;
+    document.body.classList.toggle('welcome-mode', show);
+  }
   function fullRender() {
+    renderWelcome();
     computeChords(); renderInfo(); renderLevels(); renderStyles(); renderControls(); renderChords();
     $('#noteTools').hidden = !S.sel; renderStaff(); renderSaveState(); stopPlay();
     const arr = arrangement(); $('#ptime').textContent = `0:00 / ${fmt(arr.duration)}`;
   }
 
   // ---------- 이벤트 ----------
+  $('#wImport').addEventListener('click', openImport);
+  $('#wLib').addEventListener('click', openLib);
+  $('#wExample').addEventListener('click', () => { store.write(WELCOME_KEY, true); renderWelcome(); renderStaff(); });
   $('#play').addEventListener('click', play);
   $('#exportBtn').addEventListener('click', openExport);
   $('#libBtn').addEventListener('click', openLib);
