@@ -41,13 +41,14 @@ async function setupAI() {
     for (const f of [].concat(opts.images || [])) parts.push({ inlineData: { data: await blobToBase64(f), mimeType: f.type || 'image/jpeg' } });
     let lastErr = null;
     const errs = [];
-    const limit = opts.careful ? 150 : 90;
-    const deadline = Date.now() + (opts.careful ? 270 : 180) * 1000; // 전체 최대 시간: 넘으면 멈추고 알려 줘요
+    const limit = opts.careful ? 200 : 90;
+    const deadline = Date.now() + (opts.careful ? 320 : 180) * 1000; // 전체 최대 시간: 넘으면 멈추고 알려 줘요
     const once = async (name, plain) => {
       const gc = json ? { responseMimeType: 'application/json' } : {};
       // 보통: 빨리 읽기 / 꼼꼼하게: 더 오래 생각해서 정확하게
       if (!plain) {
-        if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: opts.careful ? 'medium' : 'low' };
+        if (/pro/.test(name)) { /* Pro는 기본 설정 그대로 (스스로 알맞게 생각) */ }
+        else if (/gemini-3/.test(name)) gc.thinkingConfig = { thinkingLevel: opts.careful ? 'medium' : 'low' };
         else if (/gemini-2\.5/.test(name)) gc.thinkingConfig = { thinkingBudget: opts.careful ? 2048 : 0 };
       }
       const model = getGenerativeModel(ai, { model: name, generationConfig: gc });
@@ -62,7 +63,9 @@ async function setupAI() {
         return res.response.text();
       } finally { clearInterval(tick); }
     };
-    for (const name of models) {
+    // 꼼꼼하게 읽기: 더 똑똑한 Pro 모델 먼저 (없는 모델은 바로 건너뜀)
+    const list = opts.careful ? (cfg.carefulModels || []).concat(models) : models;
+    for (const name of list) {
       let plain = false, retried = false;
       while (true) {
         if (opts.signal && opts.signal.aborted) throw { code: 'cancelled' };

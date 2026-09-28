@@ -12,6 +12,7 @@ window.FIREBASE_CONFIG = {
   aiLocation: "global",
   // 악보 읽기에 쓸 AI 모델 (앞에서부터 차례로 시도)
   models: ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.8-flash"],
+  carefulModels: ["gemini-3.5-pro", "gemini-3.1-pro-preview", "gemini-2.5-pro"],
   // App Check(보안 확인) — Fraud Defense(reCAPTCHA Enterprise) 사이트 키
   // Firebase App Check에 등록을 마치면 아래 주석을 풀어요
   appCheckSiteKey: null // "6LdW3NEtAAAAABsROrW3AFvc7he0a2fPNHZfUenX"
