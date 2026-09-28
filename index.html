@@ -2778,6 +2778,122 @@ if (typeof module !== 'undefined') module.exports = Engine;
   }
 
   // ---------- 악보 불러오기: 사진 여러 장 · PDF · MusicXML · 곡 파일 ----------
+  // ---------- 악보를 줄(단)마다 잘라서 읽기 ----------
+  // 한 장을 통째로 주면 AI가 음표를 작게 봐서 틀리거나 지어내요.
+  // 먼저 줄 위치를 찾아 한 줄씩 잘라 크게 보여 주면 훨씬 정확하고, 여러 줄을 동시에 읽어서 빨라요.
+  async function blobToCanvas(blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
+      const cv = document.createElement('canvas'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0);
+      return cv;
+    } finally { URL.revokeObjectURL(url); }
+  }
+  // AI에게 먼저 '각 줄(단)이 사진의 어디에 있는지'만 물어봐요 (빠르고 간단한 일)
+  const BOX_PROMPT = `This is a photo or scan of a sheet-music page. Find every SYSTEM (one line of music) on it, top to bottom.
+- Piano score: a system is the treble staff + bass staff pair joined by a brace — ONE box for both staves.
+- Song with a single melody staff: each staff (with its lyrics) is one system.
+Each box must include the chord symbols printed above the staff and any notes above or below it. Do not include the title block.
+Return ONLY JSON: {"systems":[{"box_2d":[ymin,xmin,ymax,xmax]}]} with coordinates normalized to 0-1000, in reading order.`;
+  async function splitSystems(blob, opts) {
+    const small = await shrinkImage(blob);
+    try {
+      const r = await sample.json(BOX_PROMPT, { ...opts, careful: false, images: [small] });
+      let boxes = (r && Array.isArray(r.systems) ? r.systems : []).map(x => x && x.box_2d).filter(b => Array.isArray(b) && b.length === 4)
+        .map(b => ({ y0: Math.max(0, Math.min(1000, +b[0])), y1: Math.max(0, Math.min(1000, +b[2])) })).filter(b => b.y1 - b.y0 > 15).sort((a, b) => a.y0 - b.y0);
+      if (boxes.length < 2) return [small];
+      const cv = await blobToCanvas(blob);
+      const H = cv.height, out = [];
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i], h = b.y1 - b.y0;
+        // 위아래로 넉넉하게 (옆 줄과는 한가운데까지만)
+        const top = i ? Math.max((boxes[i - 1].y1 + b.y0) / 2, b.y0 - h * 0.35) : b.y0 - h * 0.35;
+        const bot = i < boxes.length - 1 ? Math.min((b.y1 + boxes[i + 1].y0) / 2, b.y1 + h * 0.25) : b.y1 + h * 0.25;
+        const y0 = Math.max(0, Math.floor(Math.min(top, b.y0 - 10) / 1000 * H)), y1 = Math.min(H, Math.ceil(Math.max(bot, b.y1 + 10) / 1000 * H));
+        const sc = Math.min(1, 2000 / cv.width);
+        const c2 = document.createElement('canvas'); c2.width = Math.round(cv.width * sc); c2.height = Math.max(1, Math.round((y1 - y0) * sc));
+        const g2 = c2.getContext('2d'); g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height);
+        g2.drawImage(cv, 0, y0, cv.width, y1 - y0, 0, 0, c2.width, c2.height);
+        out.push(await new Promise(r2 => c2.toBlob(r2, 'image/jpeg', 0.9)));
+      }
+      return out;
+    } catch (e) { if (e && e.code === 'cancelled') throw e; console.warn('줄 나누기 실패', e); return [small]; }
+  }
+
+  const LINE_PROMPT = `You are transcribing ONE STRIP cut from a sheet-music page (usually one line / system; sometimes two). A piano teacher will generate accompaniment from your transcription, so accuracy matters more than anything.
+Return ONLY one JSON object, no prose:
+{"title":"<song title if printed in this strip, else null>","key":"<key from the key signature at the start of the line: tonic letter with # or b, add m for minor, e.g. C, G, Bb, Em>","meter":"<time signature, e.g. 4/4; if none printed on this line write null>","bars":[{"notes":["E4:4","G4:2","r:2"],"chords":[{"beat":1,"chord":"C"}],"start":false,"end":false,"ending":null,"mark":null}]}
+How to read:
+- First COUNT the bar lines in the strip and write exactly that many bars, left to right. A normal line has 3–6 bars. Never invent bars that are not in the image.
+- MELODY: if there is a vocal/melody staff, use it. If it is a piano score (treble + bass staff joined by a brace), the melody is the HIGHEST note of the treble (right-hand) staff at each moment — ignore inner notes and the bass staff completely.
+- For each note, find its head on the staff: treble clef lines bottom→top are E4 G4 B4 D5 F5, spaces F4 A4 C5 E5; below the staff: D4 (space), C4 (1 ledger line). Bass clef lines G2 B2 D3 F3 A3. Apply the key signature (e.g. one sharp → every F is F#) and accidentals within the bar.
+- Each note is "<pitch><octave>:<length>", length in 16ths: 16th=1, 8th=2, dotted 8th=3, quarter=4, dotted quarter=6, half=8, dotted half=12, whole=16. Rest "r:<length>". A whole-bar rest fills the whole bar. Each bar must add up to the time signature (4/4=16, 3/4=12, 2/4=8, 6/8=12).
+- A note tied across a bar line: write it in both bars with the same pitch.
+- "chords": EVERY chord symbol printed above this bar, copied EXACTLY as printed (e.g. "D2/F#", "F#aug7", "Gadd2", "A7(13)", "EmM7", "C/D"), with the beat it starts on. If no chord symbols are printed, use [].
+- Do NOT unfold repeats. Instead mark them: "start":true on a bar that begins with a start-repeat sign |:, "end":true on a bar that ends with an end-repeat sign :|, "ending":1 or 2 for bars under a 1st/2nd ending bracket, "mark": "segno", "coda", "tocoda", "fine", "dc" (D.C.), "ds" (D.S.) when printed on that bar; otherwise leave them false/null.
+- Ignore lyrics, fingering, dynamics, pedal marks, the title and the composer text.`;
+
+  // 반복 기호 펼치기 (도돌이표, 1·2번 괄호, D.C., D.S., Fine, Coda)
+  function unfoldBars(bars) {
+    const repeatPass = list => {
+      const out = []; let rs = 0, jumped = -1, i = 0, guard = 0; const done = new Set();
+      while (i < list.length && guard++ < 3000) {
+        if (jumped >= 0 && i > jumped) { jumped = -1; rs = i; }
+        const b = list[i];
+        const second = jumped >= 0 && i <= jumped;
+        if (b.start && !second) rs = i;
+        if (second && b.ending === 1) { i++; continue; }
+        out.push(b);
+        if (b.end && !done.has(i)) { done.add(i); jumped = i; i = rs; continue; }
+        i++;
+      }
+      return out;
+    };
+    const mk = b => String(b.mark || '').toLowerCase().replace(/[^a-z]/g, '');
+    const di = bars.findIndex(b => /^(dc|ds|dacapo|dalsegno)/.test(mk(b)));
+    if (di < 0) return repeatPass(bars);
+    const out = repeatPass(bars.slice(0, di + 1));
+    const segno = bars.findIndex(b => mk(b) === 'segno');
+    const coda = bars.findIndex((b, i) => mk(b) === 'coda' && i > 0);
+    let i = /^(ds|dalsegno)/.test(mk(bars[di])) && segno >= 0 ? segno : 0;
+    for (; i <= di; i++) {
+      const b = bars[i];
+      if (b.ending === 1) continue;
+      if (i === di) break;
+      out.push(b);
+      if (mk(b) === 'fine') return out;
+      if (mk(b) === 'tocoda' && coda > di) { return out.concat(bars.slice(coda)); }
+    }
+    return out.concat(bars.slice(di + 1).filter(b => b.ending !== 1));
+  }
+  // 줄마다 읽은 결과를 한 곡으로 합치기
+  function mergeStrips(parts) {
+    const first = parts.find(p => p && p.bars && p.bars.length) || {};
+    const title = (parts.find(p => p && p.title) || {}).title;
+    const keys = parts.map(p => p && p.key).filter(Boolean);
+    const key = keys[0] || 'C';
+    const meter = (parts.find(p => p && p.meter) || {}).meter || '4/4';
+    let bars = [];
+    parts.forEach(p => { if (p && Array.isArray(p.bars)) bars = bars.concat(p.bars.slice(0, 14)); });
+    return { title, key, meter, bars: unfoldBars(bars), sections: [] };
+  }
+  async function readStrips(strips, opts, progress) {
+    const res = new Array(strips.length); let doneN = 0, next = 0;
+    const one = async i => {
+      const hint = strips.length > 1 ? `\n(This is strip ${i + 1} of ${strips.length} of the song, in reading order.)` : '';
+      for (let t = 0; t < 2; t++) {
+        try { res[i] = await sample.json(LINE_PROMPT + hint, { ...opts, images: [strips[i]] }); break; }
+        catch (e) { if (e && e.code === 'cancelled') throw e; if (t === 1) throw e; }
+      }
+      doneN++; progress(doneN, strips.length);
+    };
+    const worker = async () => { while (next < strips.length) { const i = next++; await one(i); } };
+    await Promise.all(Array.from({ length: Math.min(4, strips.length) }, worker));
+    return res;
+  }
+
   const READ_PROMPT = `You are transcribing sheet music (one or more photos or PDF pages, in order), usually a Korean children's song (동요), so a piano teacher can generate accompaniment.
 Transcribe the MELODY line and the chord symbols printed above the staff.
 Where is the melody: if there is a separate vocal/melody staff, use it. If it is a piano arrangement (two staves, no vocal line), the melody is the HIGHEST note of the right hand at each moment (the top of each chord, the stem-up voice); do not write the inner notes.
@@ -2846,7 +2962,7 @@ Rules:
     for (let i = 1; i <= n; i++) {
       const page = await pdf.getPage(i);
       const vp0 = page.getViewport({ scale: 1 });
-      const vp = page.getViewport({ scale: Math.min(3, 1700 / vp0.width) });
+      const vp = page.getViewport({ scale: Math.min(4, 2200 / vp0.width) });
       const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
       const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
       await page.render({ canvasContext: g, viewport: vp }).promise;
@@ -3107,7 +3223,6 @@ Rules:
         }
         const pdfs = files.filter((f, i) => kinds[i] === 'pdf');
         for (const pf of pdfs) {
-          if (window.STANDALONE && pf.size < 8e6) { images.push(pf); continue; } // PDF를 그대로 AI에게 보냄
           spin('PDF를 그림으로 바꾸는 중이에요…');
           const r = await pdfToImages(pf, maxImg - images.length);
           images = images.concat(r.images);
@@ -3115,12 +3230,26 @@ Rules:
         }
         if (!images.length) return fail('읽을 수 있는 사진이나 PDF가 없어요.');
         if (images.length > maxImg) { images = images.slice(0, maxImg); note = ` (앞 ${maxImg}장만 읽었어요)`; }
-        spin('사진 크기를 줄이는 중이에요…');
-        images = await Promise.all(images.map(b => (b.type || '').startsWith('image/') ? shrinkImage(b) : b));
-        const stream = spin(`악보 ${images.length}개를 읽는 중이에요… (30초~1분)`);
         ctrl = new AbortController();
         const fullMode = !!(document.querySelector('#fullRead') || {}).checked;
-        const j = await sample.json(fullMode ? FULL_PROMPT : READ_PROMPT, { images, modelTier: 'complex', careful: !!(document.querySelector('#carefulRead') || {}).checked, signal: ctrl.signal, onText: ({ text }) => { stream.textContent = text.slice(-240); } });
+        const careful = !!(document.querySelector('#carefulRead') || {}).checked;
+        let j;
+        if (fullMode) {
+          spin('사진 크기를 줄이는 중이에요…');
+          images = await Promise.all(images.map(b => (b.type || '').startsWith('image/') ? shrinkImage(b) : b));
+          const stream = spin(`악보 ${images.length}개를 읽는 중이에요…`);
+          j = await sample.json(FULL_PROMPT, { images, modelTier: 'complex', careful, signal: ctrl.signal, onText: ({ text }) => { stream.textContent = text.slice(-240); } });
+        } else {
+          spin('악보를 한 줄씩 나누는 중이에요…');
+          let strips = [];
+          const per = await Promise.all(images.map(im => splitSystems(im, { modelTier: 'complex', signal: ctrl.signal })));
+          per.forEach(x => { strips = strips.concat(x); });
+          const stream = spin(`악보 ${strips.length}줄을 읽는 중이에요… (1분쯤)`);
+          const t0 = Date.now(); let dn = 0;
+          const tick = setInterval(() => { stream.textContent = `${strips.length}줄 중 ${dn}줄 읽음 · ${Math.round((Date.now() - t0) / 1000)}초`; }, 1000);
+          try { j = mergeStrips(await readStrips(strips, { modelTier: 'complex', careful, signal: ctrl.signal }, d => { dn = d; })); }
+          finally { clearInterval(tick); }
+        }
         const song = fullMode ? songFromFullAI(j) : E.fromAI(j);
         if (!song.bars.length) throw { code: 'empty' };
         song.origTonic = song.tonic;
