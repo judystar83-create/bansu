@@ -98,4 +98,45 @@ async function setupAI() {
   });
 }
 const ready = setupAI().catch(e => console.error('Firebase 연결 실패', e));
+
+// ---------- 체험 코드 (원장님마다 다른 코드, 쓸 수 있는 횟수 제한) ----------
+// 코드 목록과 횟수는 Firebase 보안 규칙에만 있어서 다른 사람이 볼 수도, 바꿀 수도 없어요.
+let fsMod = null, fsDb = null;
+async function fs() {
+  await ready;
+  if (!fsDb) {
+    fsMod = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore-lite.js`);
+    fsDb = fsMod.getFirestore(window.FIREBASE_APP);
+  }
+  return fsMod;
+}
+const norm = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+window.TRIAL = cfg && cfg.trial ? {
+  // 코드 확인: 남은 횟수를 알려 줘요 (처음 쓰는 코드면 등록)
+  async check(code) {
+    code = norm(code); if (!code) throw { code: 'bad_code' };
+    const f = await fs(); const ref = f.doc(fsDb, 'trial', code);
+    let snap;
+    try { snap = await f.getDoc(ref); } catch (e) { throw { code: 'bad_code', message: e.message }; }
+    if (!snap.exists()) {
+      const limit = code.startsWith('BEER') ? 100000 : (cfg.trialLimit || 3);
+      try { await f.setDoc(ref, { used: 0, limit, created: f.serverTimestamp() }); } catch (e) { throw { code: 'bad_code', message: e.message }; }
+      return { left: limit, limit };
+    }
+    const d = snap.data(); return { left: Math.max(0, d.limit - d.used), limit: d.limit };
+  },
+  // 한 번 쓰기 (악보 읽기 1번)
+  async use(code) {
+    code = norm(code);
+    const f = await fs(); const ref = f.doc(fsDb, 'trial', code);
+    return f.runTransaction(fsDb, async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) throw { code: 'bad_code' };
+      const d = snap.data();
+      if (d.used >= d.limit) throw { code: 'used_up' };
+      tx.update(ref, { used: d.used + 1, last: f.serverTimestamp() });
+      return { left: d.limit - d.used - 1 };
+    });
+  }
+} : null;
 window.claude = { use: async n => { await ready; return n === 'downloads' ? downloads : n === 'sample' ? sample : null; } };

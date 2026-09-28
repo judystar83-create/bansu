@@ -3165,6 +3165,19 @@ Rules:
     };
     input.addEventListener('change', () => { addFiles(input.files, true); input.value = ''; });
     cam.addEventListener('change', () => { addFiles(cam.files, true); cam.value = ''; });
+    // 체험 코드 (원장님마다 하나)
+    const TRIAL = window.TRIAL, CODE_KEY = 'bansu.trialCode';
+    let trialCode = TRIAL ? (store.read(CODE_KEY) || '') : '';
+    const codeIn = el('input', { type: 'text', autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', placeholder: '받으신 체험 코드', 'aria-label': '체험 코드', class: 'pk', style: 'flex:1;min-width:0;font-family:var(--f-mono);letter-spacing:2px;padding:0 10px;text-align:left;text-transform:uppercase' });
+    const codeMsg = el('p', { class: 'hint', style: 'margin:6px 0 0' });
+    const codeOk = el('button', { type: 'button', class: 'btn small', onclick: async () => {
+      codeMsg.textContent = '확인하는 중이에요…';
+      try { const r = await TRIAL.check(codeIn.value); trialCode = codeIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); store.write(CODE_KEY, trialCode); codeMsg.textContent = r.left > 0 ? `✓ 확인됐어요. 악보 읽기를 ${r.left > 1000 ? '제한 없이' : r.left + '번 더'} 할 수 있어요.` : '이 코드는 체험 횟수를 모두 썼어요.'; }
+      catch (e) { codeMsg.textContent = '코드가 맞지 않아요. 받으신 코드를 다시 확인해 주세요.'; }
+    } }, '확인');
+    codeIn.value = trialCode;
+    const codeBox = TRIAL ? el('div', { style: 'margin:4px 0 8px' }, el('p', { class: 'sub', style: 'margin:0 0 4px' }, '체험 코드'), el('div', { style: 'display:flex;gap:6px' }, codeIn, codeOk), codeMsg) : null;
+    if (TRIAL && trialCode) setTimeout(() => codeOk.click(), 0);
     const camBtn = el('button', { type: 'button', class: 'btn primary', style: 'flex:1', onclick: () => cam.click() }, '📷 사진 찍기');
     const pickBtn = el('button', { type: 'button', class: 'btn', style: 'flex:1', onclick: () => input.click() }, '🖼 사진첩·파일');
     const srcRow = el('div', { style: 'display:flex;gap:8px;margin:10px 0' }, camBtn, pickBtn);
@@ -3175,7 +3188,7 @@ Rules:
       canAI ? null : el('div', { class: 'notice warn' }, el('span', {}, window.STANDALONE ? '악보 읽기(사진·PDF·워드)가 아직 연결되지 않았어요. Firebase 설정을 마치면 쓸 수 있어요. MusicXML과 곡 파일은 지금도 열 수 있어요.' : sample
         ? '지금 쓰는 기기의 Claude 앱에서는 앱이 사진·PDF를 Claude에게 보낼 수 없어요. 대신 Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요. 컴퓨터의 claude.ai에서 열어도 돼요.'
         : '이 화면에서는 Claude에게 악보 읽기를 부탁할 수 없어요. Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요.')),
-      canAI ? srcRow : null, preview, input, cam,
+      canAI ? codeBox : null, canAI ? srcRow : null, preview, input, cam,
       canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'carefulRead', style: 'margin-top:3px' }), el('span', {}, '꼼꼼하게 읽기 — 더 똑똑한 AI가 읽어요. 음표가 많은 피아노 편곡 악보는 켜 두세요. 2~4분 걸려요.')) : null,
       canAI ? el('label', { style: 'display:flex;gap:8px;align-items:flex-start;font-size:13.5px' }, el('input', { type: 'checkbox', id: 'fullRead', style: 'margin-top:3px' }), el('span', {}, '피아노 양손 악보를 모두 읽기 (악보 그대로 연주용 · 실험 기능). 체크하지 않으면 멜로디와 코드만 읽어요.')) : null,
       status, el('div', { class: 'row-end' }, go)
@@ -3230,6 +3243,12 @@ Rules:
         }
         if (!images.length) return fail('읽을 수 있는 사진이나 PDF가 없어요.');
         if (images.length > maxImg) { images = images.slice(0, maxImg); note = ` (앞 ${maxImg}장만 읽었어요)`; }
+        if (TRIAL) {
+          const cd = (codeIn.value || trialCode).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (!cd) return fail('맨 위에 받으신 체험 코드를 넣고 “확인”을 눌러 주세요.');
+          try { const r = await TRIAL.use(cd); store.write(CODE_KEY, cd); codeMsg.textContent = r.left > 1000 ? '' : `이번 읽기 뒤에 ${r.left}번 남았어요.`; }
+          catch (e) { return fail(e && e.code === 'used_up' ? '이 체험 코드로 악보 읽기를 모두 썼어요. 정식 버전은 베에르음악학원으로 문의해 주세요.' : '체험 코드가 맞지 않아요. 맨 위의 코드를 확인해 주세요.'); }
+        }
         ctrl = new AbortController();
         const fullMode = !!(document.querySelector('#fullRead') || {}).checked;
         const careful = !!(document.querySelector('#carefulRead') || {}).checked;
