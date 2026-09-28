@@ -119,7 +119,7 @@ window.TRIAL = cfg && cfg.trial ? {
     let snap;
     try { snap = await f.getDoc(ref); } catch (e) { throw { code: 'bad_code', message: e.message }; }
     if (!snap.exists()) {
-      const limit = code.startsWith('BEER') ? 100000 : (cfg.trialLimit || 3);
+      const limit = code.startsWith('BEEREUMUSIC') ? 100000 : (cfg.trialLimit || 3);
       try { await f.setDoc(ref, { used: 0, limit, created: f.serverTimestamp() }); } catch (e) { throw { code: 'bad_code', message: e.message }; }
       return { left: limit, limit };
     }
