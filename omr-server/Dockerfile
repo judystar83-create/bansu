@@ -6,15 +6,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
     AUDIVERIS=/opt/audiveris/bin/Audiveris \
     PYTHONUNBUFFERED=1
 ARG AUDIVERIS_VERSION=5.9.0
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git python3 python3-pil fontconfig libfreetype6 \
+# 설치 프로그램(.deb)은 데스크톱 메뉴 등록 단계 때문에 서버에서 실패할 수 있어서, 파일만 풀어서 써요
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl python3 python3-pil fontconfig fonts-dejavu-core \
+      libfreetype6 libasound2t64 libx11-6 libxext6 libxi6 libxrender1 libxtst6 libbsd0 zlib1g libgomp1 tesseract-ocr-eng \
  && curl -fsSL -o /tmp/audiveris.deb "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu24.04-x86_64.deb" \
- && apt-get install -y --no-install-recommends /tmp/audiveris.deb \
+ && dpkg-deb -x /tmp/audiveris.deb / \
  && rm -f /tmp/audiveris.deb \
  && mkdir -p /config/AudiverisLtd/audiveris/tessdata \
- && git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/tesseract-ocr/tessdata_fast /tmp/td \
- && cd /tmp/td && git sparse-checkout set --no-cone eng.traineddata && git checkout -q \
- && cp eng.traineddata /config/AudiverisLtd/audiveris/tessdata/ && cd / && rm -rf /tmp/td \
- && apt-get purge -y git && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+ && cp "$(find /usr/share -name eng.traineddata | head -1)" /config/AudiverisLtd/audiveris/tessdata/ \
+ && test -x /opt/audiveris/bin/Audiveris \
+ && rm -rf /var/lib/apt/lists/*
 COPY server.py /app/server.py
 WORKDIR /app
 EXPOSE 8080

@@ -16,6 +16,8 @@ echo "== 악보 읽기 서버 만드는 중 (5~10분) =="
 set +e
 for TRY in 1 2 3; do
   gcloud run deploy bansu-omr --source . --region asia-northeast3 --allow-unauthenticated --memory 4Gi --cpu 2 --timeout 300 --concurrency 1 --max-instances 3 --project $P --quiet && break
+  B=$(gcloud builds list --project $P --region asia-northeast3 --limit=1 --format='value(id)' 2>/dev/null)
+  [ -n "$B" ] && echo "---- 실패 기록 (이 화면을 찍어 보내 주세요) ----" && gcloud builds log "$B" --project $P --region asia-northeast3 2>/dev/null | tail -25
   [ $TRY -lt 3 ] && echo "== 권한이 퍼지는 중이라 1분 뒤에 다시 해요 ($TRY/3) ==" && sleep 60
 done
 echo "== 다 됐어요! 위의 Service URL 화면을 찍어서 보내 주세요 =="
