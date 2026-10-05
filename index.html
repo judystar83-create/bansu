@@ -2820,9 +2820,10 @@ Return ONLY JSON: {"systems":[{"box_2d":[ymin,xmin,ymax,xmax]}]} with coordinate
         const top = i ? Math.max((boxes[i - 1].y1 + b.y0) / 2, b.y0 - h * 0.35) : b.y0 - h * 0.35;
         const bot = i < boxes.length - 1 ? Math.min((b.y1 + boxes[i + 1].y0) / 2, b.y1 + h * 0.25) : b.y1 + h * 0.25;
         const y0 = Math.max(0, Math.floor(Math.min(top, b.y0 - 10) / 1000 * H)), y1 = Math.min(H, Math.ceil(Math.max(bot, b.y1 + 10) / 1000 * H));
-        const sc = Math.min(1, 2000 / cv.width);
+        // 작은 그림(인터넷에서 받은 악보 등)은 크게 키워서 보내요
+        const sc = cv.width > 2000 ? 2000 / cv.width : cv.width < 1600 ? 1600 / cv.width : 1;
         const c2 = document.createElement('canvas'); c2.width = Math.round(cv.width * sc); c2.height = Math.max(1, Math.round((y1 - y0) * sc));
-        const g2 = c2.getContext('2d'); g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height);
+        const g2 = c2.getContext('2d'); g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height); g2.imageSmoothingQuality = 'high';
         g2.drawImage(cv, 0, y0, cv.width, y1 - y0, 0, 0, c2.width, c2.height);
         out.push(await new Promise(r2 => c2.toBlob(r2, 'image/jpeg', 0.9)));
       }
@@ -2887,6 +2888,20 @@ How to read:
     parts.forEach(p => { if (p && Array.isArray(p.bars)) bars = bars.concat(p.bars.slice(0, 14)); });
     return { title, key, meter, bars: unfoldBars(bars), sections: [] };
   }
+  // 읽은 줄이 이상한지 검사: 마디마다 박자 합이 맞는지
+  const BAR_LEN = { '2/4': 8, '3/4': 12, '4/4': 16, '6/8': 12, '9/8': 18, '12/8': 24, '2/2': 16, '3/8': 6, '5/4': 20 };
+  function stripBadRatio(r, meter) {
+    const bars = (r && Array.isArray(r.bars)) ? r.bars : [];
+    if (!bars.length) return 1;
+    const need = BAR_LEN[String(meter || r.meter || '4/4').replace(/\s/g, '')] || 16;
+    let bad = 0;
+    bars.forEach((b, i) => {
+      const sum = (b.notes || []).reduce((a, n) => a + (parseInt(String(n).split(':')[1], 10) || 0), 0);
+      const edge = i === 0 || i === bars.length - 1; // 못갖춘마디는 봐줘요
+      if (sum !== need && !(edge && sum > 0 && sum < need)) bad++;
+    });
+    return bad / bars.length + (bars.length > 10 ? 0.5 : 0);
+  }
   async function readStrips(strips, opts, progress) {
     const res = new Array(strips.length); let doneN = 0, next = 0;
     const one = async i => {
@@ -2894,6 +2909,13 @@ How to read:
       for (let t = 0; t < 2; t++) {
         try { res[i] = await sample.json(LINE_PROMPT + hint, { ...opts, images: [strips[i]] }); break; }
         catch (e) { if (e && e.code === 'cancelled') throw e; if (t === 1) throw e; }
+      }
+      // 박자가 많이 안 맞으면 더 똑똑한 AI로 한 번 더 읽고, 더 나은 쪽을 써요
+      if (!opts.careful && stripBadRatio(res[i]) > 0.25) {
+        try {
+          const again = await sample.json(LINE_PROMPT + hint + '\nA previous reading of this strip had bars that did not add up to the time signature. Read every note value very carefully (flags, beams, dots, rests).', { ...opts, careful: true, images: [strips[i]] });
+          if (stripBadRatio(again) < stripBadRatio(res[i])) res[i] = again;
+        } catch (e) { if (e && e.code === 'cancelled') throw e; }
       }
       doneN++; progress(doneN, strips.length);
     };
@@ -2951,10 +2973,11 @@ Rules:
       const url = URL.createObjectURL(blob);
       const img = new Image();
       await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
-      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const big = Math.max(img.naturalWidth, img.naturalHeight);
+      const k = big > max ? max / big : big < 1600 ? 1600 / big : 1; // 너무 작은 그림은 키워요
       const cv = document.createElement('canvas');
       cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
-      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, cv.width, cv.height);
       URL.revokeObjectURL(url);
       const out = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9));
       return out || blob;
