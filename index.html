@@ -2799,6 +2799,60 @@ if (typeof module !== 'undefined') module.exports = Engine;
       return cv;
     } finally { URL.revokeObjectURL(url); }
   }
+  // ---------- 악보 읽기 전문 프로그램(Audiveris 서버) ----------
+  const blobToB64 = b => new Promise((ok, bad) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = bad; fr.readAsDataURL(b); });
+  const CHORD_PROMPT = `These are pages of ONE song's sheet music (in order). The notes are transcribed separately; count bars across all pages in reading order, without unfolding repeats.
+Read ONLY the chord symbols printed above the staff. Return ONLY JSON:
+{"title":"<song title as printed, or null>","bars":[{"n":1,"chords":[{"beat":1,"chord":"G"}]}]}
+- One entry per bar that has chord symbols, "n" = bar number counting from 1 across all pages (a short pickup bar at the start counts as bar 1).
+- Copy each chord EXACTLY as printed (e.g. "D2/F#", "F#aug7", "A7(13)", "EmM7"), with the beat where it sits.
+- If the score has no chord symbols at all, return {"title":...,"bars":[]}.`;
+  async function readWithOMR(images, pdfs, code, spin, signal, fullWanted) {
+    const CFG = window.FIREBASE_CONFIG || {};
+    const files = [];
+    for (const im of images) { const b = await shrinkImage(im, 3000); files.push({ name: im.name || 'photo.jpg', type: b.type || 'image/jpeg', data: await blobToB64(b) }); }
+    for (const pf of pdfs) if (pf.size < 25e6) files.push({ name: pf.name, type: 'application/pdf', data: await blobToB64(pf) });
+    if (!files.length) return null;
+    const stream = spin('악보 읽기 프로그램이 읽는 중이에요… (30초~1분)');
+    const t0 = Date.now(); const tick = setInterval(() => { stream.textContent = `${Math.round((Date.now() - t0) / 1000)}초`; }, 1000);
+    // 코드 이름은 AI가 동시에 읽어요 (글자 읽기는 AI가 잘해요)
+    const chordJob = (async () => {
+      if (!sample) return null;
+      try { return await sample.json(CHORD_PROMPT, { images: await Promise.all(images.map(b => shrinkImage(b))).then(x => x.concat(pdfs.filter(p => p.size < 8e6))), modelTier: 'complex', signal }); } catch (e) { return null; }
+    })();
+    let res;
+    try {
+      const r = await fetch(CFG.omrUrl.replace(/\/$/, '') + '/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, files }), signal });
+      res = await r.json().catch(() => ({}));
+      if (!r.ok || !res.ok) throw new Error('omr ' + r.status + ' ' + (res.error || ''));
+    } catch (e) { if (signal && signal.aborted) throw { code: 'cancelled' }; throw e; }
+    finally { clearInterval(tick); }
+    const songs = [];
+    for (const pg of res.pages || []) {
+      if (!pg.mxl) continue;
+      const bin = Uint8Array.from(atob(pg.mxl), c => c.charCodeAt(0));
+      try { songs.push(await musicXMLFromBytes(bin.buffer, { topLine: true })); } catch (e) { console.warn('MusicXML 읽기 실패', e); }
+    }
+    if (!songs.length) return null;
+    const song = songs[0];
+    for (const s2 of songs.slice(1)) song.bars = song.bars.concat(s2.bars);
+    if (songs.length > 1 || !fullWanted) song.full = null;
+    // 코드 이름 붙이기
+    spin('코드 이름을 확인하는 중이에요…');
+    const cj = await chordJob;
+    if (cj && Array.isArray(cj.bars) && cj.bars.length) {
+      const mi = E.meterInfo(song.meter);
+      song.bars.forEach(b => { b.chords = []; });
+      cj.bars.forEach((x, k) => {
+        const i = (parseInt(x.n, 10) || k + 1) - 1; const b = song.bars[i]; if (!b) return;
+        (x.chords || []).forEach(cc => { const c = E.parseChord(typeof cc === 'string' ? cc : cc.chord); if (c) b.chords.push({ t: Math.max(0, ((cc.beat || 1) - 1) * mi.beatTicks - E.barOffset(song, i)), c }); });
+      });
+    }
+    if (cj && cj.title) song.title = String(cj.title).slice(0, 60);
+    song.origTonic = song.tonic;
+    return song;
+  }
+
   // AI에게 먼저 '각 줄(단)이 사진의 어디에 있는지'만 물어봐요 (빠르고 간단한 일)
   const BOX_PROMPT = `This is a photo or scan of a sheet-music page. Find every SYSTEM (one line of music) on it, top to bottom.
 - Piano score: a system is the treble staff + bass staff pair joined by a brace — ONE box for both staves.
@@ -3004,7 +3058,7 @@ Rules:
 
   const XKIND = { major: '', minor: 'm', augmented: 'aug', diminished: 'dim', dominant: '7', 'major-seventh': 'maj7', 'minor-seventh': 'm7', 'diminished-seventh': 'dim7', 'augmented-seventh': '7#5', 'half-diminished': 'm7b5', 'major-minor': 'mmaj7', 'major-sixth': '6', 'minor-sixth': 'm6', 'dominant-ninth': '9', 'major-ninth': 'maj9', 'minor-ninth': 'm9', 'dominant-11th': '9', 'dominant-13th': '13', 'suspended-second': 'sus2', 'suspended-fourth': 'sus4', power: '' };
   const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-  function parseMusicXML(text) {
+  function parseMusicXML(text, opt = {}) {
     const doc = new DOMParser().parseFromString(text, 'application/xml');
     if (doc.querySelector('parsererror')) throw new Error('xml');
     const q = (n, s) => n.querySelector(s);
@@ -3016,6 +3070,27 @@ Rules:
       if (m.tagName !== 'measure') continue;
       const rec = { notes: [], chords: [], fwd: false, back: false, ending: curEnd };
       let pos = 0;
+      // 악보 읽기 프로그램 결과: 오른손(1번 오선)의 '맨 위 음'을 멜로디로
+      if (opt.topLine) {
+        let t = 0, last = 0, end = 0; const ev = new Map();
+        for (const ch of m.children) {
+          const dv0 = ch.tagName === 'attributes' && q(ch, 'divisions'); if (dv0) div = +dv0.textContent || div;
+          const dur = () => Math.round((+(q(ch, 'duration') || {}).textContent || 0) / div * 4);
+          if (ch.tagName === 'backup') t -= dur();
+          else if (ch.tagName === 'forward') { t += dur(); end = Math.max(end, t); }
+          else if (ch.tagName === 'note') {
+            if (q(ch, 'grace') || q(ch, 'cue')) continue;
+            const d = dur(), isC = !!q(ch, 'chord'), st0 = isC ? last : t;
+            if (!isC) { last = t; t += d; } end = Math.max(end, t);
+            const staff = (q(ch, 'staff') || {}).textContent; if (staff && staff.trim() !== '1') continue;
+            let p = null;
+            if (!q(ch, 'rest')) { const st = q(ch, 'pitch step'), oc = q(ch, 'pitch octave'); if (st && oc) p = (+oc.textContent + 1) * 12 + STEP[st.textContent.trim()] + (+(q(ch, 'pitch alter') || {}).textContent || 0); }
+            const cur = ev.get(st0); if (!cur || (p != null && (cur.p == null || p > cur.p))) ev.set(st0, { p });
+          }
+        }
+        const times = [...ev.keys()].filter(x => x >= 0).sort((a, b) => a - b);
+        times.forEach((tt, i) => { const d = (i + 1 < times.length ? times[i + 1] : end) - tt; if (d > 0) rec.notes.push({ p: ev.get(tt).p, d }); });
+      }
       for (const ch of m.children) {
         const tag = ch.tagName;
         if (tag === 'attributes') {
@@ -3031,6 +3106,7 @@ Rules:
           const bs = q(ch, 'bass-step'); if (bs) c.b = E.mod(STEP[bs.textContent.trim()] + (+(q(ch, 'bass-alter') || {}).textContent || 0));
           rec.chords.push({ t: pos, c });
         } else if (tag === 'note') {
+          if (opt.topLine) continue;
           if (q(ch, 'grace') || q(ch, 'chord') || q(ch, 'cue')) continue;
           const staff = (q(ch, 'staff') || {}).textContent; if (staff && staff.trim() !== '1') continue;
           const voice = ((q(ch, 'voice') || {}).textContent || '1').trim();
@@ -3126,6 +3202,20 @@ Rules:
     const tonic = E.mod(fifths * 7 + (mode === 'minor' ? 9 : 0));
     return { title: title || '제목 없는 곡', tonic, origTonic: tonic, mode, meter: mtr, bars, full, scoreTempo: snd ? Math.round(+snd.getAttribute('tempo')) : null };
   }
+  // .mxl(압축) 또는 .xml 글자 → 곡
+  async function musicXMLFromBytes(buf, opt) {
+    const u8 = new Uint8Array(buf);
+    if (u8[0] === 0x50 && u8[1] === 0x4b) {
+      if (!window.JSZip) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+      const zip = await JSZip.loadAsync(buf);
+      let path = null;
+      const cont = zip.file('META-INF/container.xml');
+      if (cont) { const x = new DOMParser().parseFromString(await cont.async('string'), 'application/xml'); const rf = x.querySelector('rootfile'); path = rf && rf.getAttribute('full-path'); }
+      if (!path) path = Object.keys(zip.files).find(n => /\.(xml|musicxml)$/i.test(n) && !n.startsWith('META-INF'));
+      return parseMusicXML(await zip.file(path).async('string'), opt);
+    }
+    return parseMusicXML(new TextDecoder().decode(u8), opt);
+  }
   async function readMusicXMLFile(file) {
     if (/\.mxl$/i.test(file.name)) {
       if (!window.JSZip) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
@@ -3139,6 +3229,7 @@ Rules:
     return parseMusicXML(await file.text());
   }
 
+  window.__bansu = { musicXMLFromBytes };
   function useSong(song, how) {
     leaveGuard(() => {
       const r = E.recommend(song);
@@ -3265,7 +3356,24 @@ Rules:
           }
           if (!media.length) return fail('워드 파일 안에서 악보 그림을 찾지 못했어요. 악보가 그림으로 들어 있는 워드 파일만 읽을 수 있어요.');
         }
+        if (TRIAL) {
+          const cd = (codeIn.value || trialCode).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (!cd) return fail('맨 위에 받으신 체험 코드를 넣고 “확인”을 눌러 주세요.');
+          try { const r = await TRIAL.use(cd); store.write(CODE_KEY, cd); codeMsg.textContent = r.left > 1000 ? '' : `이번 읽기 뒤에 ${r.left}번 남았어요.`; }
+          catch (e) { return fail(e && e.code === 'used_up' ? '이 체험 코드로 악보 읽기를 모두 썼어요. 정식 버전은 베에르음악학원으로 문의해 주세요.' : '체험 코드가 맞지 않아요. 맨 위의 코드를 확인해 주세요.'); }
+        }
         const pdfs = files.filter((f, i) => kinds[i] === 'pdf');
+        // ① 악보 읽기 전문 프로그램(서버)으로 먼저 읽어요
+        const CFG = window.FIREBASE_CONFIG || {};
+        if (CFG.omrUrl && (images.length || pdfs.length)) {
+          ctrl = new AbortController();
+          const fullWanted = !!(document.querySelector('#fullRead') || {}).checked;
+          try {
+            const song = await readWithOMR(images.slice(0, maxImg), pdfs, (codeIn.value || trialCode || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), spin, ctrl.signal, fullWanted);
+            if (song && song.bars.length) { close(); useSong(song, `악보를 읽었어요${note}. 틀린 음이 없는지 확인해 주세요.`); return; }
+          } catch (e) { if (e && e.code === 'cancelled') throw e; console.warn('악보 읽기 서버 실패', e); }
+          spin('다른 방법으로 다시 읽는 중이에요…');
+        }
         for (const pf of pdfs) {
           spin('PDF를 그림으로 바꾸는 중이에요…');
           const r = await pdfToImages(pf, maxImg - images.length);
@@ -3274,12 +3382,6 @@ Rules:
         }
         if (!images.length) return fail('읽을 수 있는 사진이나 PDF가 없어요.');
         if (images.length > maxImg) { images = images.slice(0, maxImg); note = ` (앞 ${maxImg}장만 읽었어요)`; }
-        if (TRIAL) {
-          const cd = (codeIn.value || trialCode).toUpperCase().replace(/[^A-Z0-9]/g, '');
-          if (!cd) return fail('맨 위에 받으신 체험 코드를 넣고 “확인”을 눌러 주세요.');
-          try { const r = await TRIAL.use(cd); store.write(CODE_KEY, cd); codeMsg.textContent = r.left > 1000 ? '' : `이번 읽기 뒤에 ${r.left}번 남았어요.`; }
-          catch (e) { return fail(e && e.code === 'used_up' ? '이 체험 코드로 악보 읽기를 모두 썼어요. 정식 버전은 베에르음악학원으로 문의해 주세요.' : '체험 코드가 맞지 않아요. 맨 위의 코드를 확인해 주세요.'); }
-        }
         ctrl = new AbortController();
         const fullMode = !!(document.querySelector('#fullRead') || {}).checked;
         const careful = !!(document.querySelector('#carefulRead') || {}).checked;
