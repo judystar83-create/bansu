@@ -2807,10 +2807,33 @@ Read ONLY the chord symbols printed above the staff. Return ONLY JSON:
 - One entry per bar that has chord symbols, "n" = bar number counting from 1 across all pages (a short pickup bar at the start counts as bar 1).
 - Copy each chord EXACTLY as printed (e.g. "D2/F#", "F#aug7", "A7(13)", "EmM7"), with the beat where it sits.
 - If the score has no chord symbols at all, return {"title":...,"bars":[]}.`;
+  // 작은 그림(인터넷에서 받은 악보)은 크게 키우고 선을 또렷하게 해서 보내요 — 시험해 보니 맞는 마디가 늘었어요
+  async function prepForOMR(blob) {
+    try {
+      const cv0 = await blobToCanvas(blob);
+      const w0 = cv0.width;
+      if (w0 >= 1400) return shrinkImage(blob, 3000);
+      const k = Math.min(6, 2500 / w0);
+      const W = Math.round(w0 * k), H = Math.round(cv0.height * k);
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(cv0, 0, 0, W, H);
+      const img = g.getImageData(0, 0, W, H), d = img.data, n = W * H;
+      const gray = new Float32Array(n); for (let i = 0; i < n; i++) gray[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+      // 흐린 그림 빼기(언샤프 마스크): 가로·세로 상자 흐림을 두 번
+      const blur = new Float32Array(gray), tmp = new Float32Array(n), R = Math.round(k * 0.6) + 2;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let y = 0; y < H; y++) { let acc = 0; const o = y * W; for (let x = -R; x < W; x++) { if (x + R < W) acc += blur[o + x + R]; if (x - R - 1 >= 0) acc -= blur[o + x - R - 1]; if (x >= 0) tmp[o + x] = acc / (Math.min(W - 1, x + R) - Math.max(0, x - R) + 1); } }
+        for (let x = 0; x < W; x++) { let acc = 0; for (let y = -R; y < H; y++) { if (y + R < H) acc += tmp[(y + R) * W + x]; if (y - R - 1 >= 0) acc -= tmp[(y - R - 1) * W + x]; if (y >= 0) blur[y * W + x] = acc / (Math.min(H - 1, y + R) - Math.max(0, y - R) + 1); } }
+      }
+      for (let i = 0; i < n; i++) { const v = Math.max(0, Math.min(255, gray[i] * 1.8 - blur[i] * 0.8)); d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; }
+      g.putImageData(img, 0, 0);
+      return await new Promise(r => cv.toBlob(r, 'image/png'));
+    } catch (e) { return shrinkImage(blob, 3000); }
+  }
   async function readWithOMR(images, pdfs, code, spin, signal, fullWanted) {
     const CFG = window.FIREBASE_CONFIG || {};
     const files = [];
-    for (const im of images) { const b = await shrinkImage(im, 3000); files.push({ name: im.name || 'photo.jpg', type: b.type || 'image/jpeg', data: await blobToB64(b) }); }
+    for (const im of images) { const b = await prepForOMR(im); files.push({ name: im.name || 'photo.jpg', type: b.type || 'image/jpeg', data: await blobToB64(b) }); }
     for (const pf of pdfs) if (pf.size < 25e6) files.push({ name: pf.name, type: 'application/pdf', data: await blobToB64(pf) });
     if (!files.length) return null;
     const stream = spin('악보 읽기 프로그램이 읽는 중이에요… (30초~1분)');
@@ -3254,7 +3277,7 @@ Rules:
     return parseMusicXML(await file.text());
   }
 
-  window.__bansu = { musicXMLFromBytes };
+  window.__bansu = { musicXMLFromBytes, prepForOMR };
   function useSong(song, how) {
     leaveGuard(() => {
       const r = E.recommend(song);
