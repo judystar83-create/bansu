@@ -12,6 +12,7 @@ window.FIREBASE_CONFIG = {
   aiLocation: "global",
   // 악보 읽기에 쓸 AI 모델 (앞에서부터 차례로 시도)
   models: ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.8-flash"],
+  omrUrl: "https://bansu-omr-968490880212.asia-northeast3.run.app", // 악보 읽기 전문 프로그램 서버
   trial: true,          // 체험 코드가 있어야 악보 읽기(AI)를 쓸 수 있어요
   trialLimit: 3,        // 코드 하나로 악보 읽기 3번 (다시 읽기 포함)
   carefulModels: ["gemini-3.5-pro", "gemini-3.1-pro-preview", "gemini-2.5-pro"],
