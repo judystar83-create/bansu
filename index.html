@@ -2833,6 +2833,7 @@ Read ONLY the chord symbols printed above the staff. Return ONLY JSON:
       const bin = Uint8Array.from(atob(pg.mxl), c => c.charCodeAt(0));
       try { songs.push(await musicXMLFromBytes(bin.buffer, { topLine: true })); } catch (e) { console.warn('MusicXML 읽기 실패', e); }
     }
+    window.__omrLast = `서버 ${res.seconds || '?'}초 · ` + (res.pages || []).map(p => p.error ? `${p.name}: ${p.error} ${String(p.log || '').split('\n').filter(l => /WARN|ERROR|Exception|interline/i.test(l)).slice(-3).join(' / ')}` : `${p.name}: ok`).join(' | ');
     if (!songs.length) return null;
     const song = songs[0];
     for (const s2 of songs.slice(1)) song.bars = song.bars.concat(s2.bars);
@@ -3365,15 +3366,18 @@ Rules:
         const pdfs = files.filter((f, i) => kinds[i] === 'pdf');
         // ① 악보 읽기 전문 프로그램(서버)으로 먼저 읽어요
         const CFG = window.FIREBASE_CONFIG || {};
+        let omrErr = '';
         if (CFG.omrUrl && (images.length || pdfs.length)) {
           ctrl = new AbortController();
           const fullWanted = !!(document.querySelector('#fullRead') || {}).checked;
           try {
             const song = await readWithOMR(images.slice(0, maxImg), pdfs, (codeIn.value || trialCode || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), spin, ctrl.signal, fullWanted);
             if (song && song.bars.length) { close(); useSong(song, `악보를 읽었어요${note}. 틀린 음이 없는지 확인해 주세요.`); return; }
-          } catch (e) { if (e && e.code === 'cancelled') throw e; console.warn('악보 읽기 서버 실패', e); }
+          } catch (e) { if (e && e.code === 'cancelled') throw e; console.warn('악보 읽기 서버 실패', e); omrErr = String((e && e.message) || e); }
           // 정확하지 않은 결과를 보여 주느니, 다시 찍어 달라고 해요 (AI로 음표를 대신 읽지 않아요)
-          return fail('이 악보는 읽지 못했어요. 악보가 화면에 꽉 차게, 밝고 반듯하게 다시 찍어 주세요. PDF가 있으면 PDF가 가장 정확해요.');
+          fail('이 악보는 읽지 못했어요. 악보가 화면에 꽉 차게, 밝고 반듯하게 다시 찍어 주세요.');
+          status.append(el('p', { class: 'stream', style: 'margin-top:6px' }, '자세한 내용: ' + (omrErr || window.__omrLast || '알 수 없음').slice(0, 400)));
+          return;
         }
         for (const pf of pdfs) {
           spin('PDF를 그림으로 바꾸는 중이에요…');
