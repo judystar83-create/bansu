@@ -2814,17 +2814,24 @@ Read ONLY the chord symbols printed above the staff. Return ONLY JSON:
     for (const pf of pdfs) if (pf.size < 25e6) files.push({ name: pf.name, type: 'application/pdf', data: await blobToB64(pf) });
     if (!files.length) return null;
     const stream = spin('악보 읽기 프로그램이 읽는 중이에요… (30초~1분)');
-    const t0 = Date.now(); const tick = setInterval(() => { stream.textContent = `${Math.round((Date.now() - t0) / 1000)}초`; }, 1000);
+    const t0 = Date.now(); const tick = setInterval(() => { if (!/쪽 중/.test(stream.textContent)) stream.textContent = `${Math.round((Date.now() - t0) / 1000)}초`; }, 1000);
     // 코드 이름은 AI가 동시에 읽어요 (글자 읽기는 AI가 잘해요)
     const chordJob = (async () => {
       if (!sample) return null;
       try { return await sample.json(CHORD_PROMPT, { images: await Promise.all(images.map(b => shrinkImage(b))).then(x => x.concat(pdfs.filter(p => p.size < 8e6))), modelTier: 'complex', signal }); } catch (e) { return null; }
     })();
+    // 한 쪽씩 따로 보내서 동시에 3쪽까지 읽어요 (빠르고, 한 쪽이 실패해도 나머지는 읽어요)
+    const results = new Array(files.length); let next = 0, done = 0;
+    const one = async i => {
+      const r = await fetch(CFG.omrUrl.replace(/\/$/, '') + '/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, files: [files[i]] }), signal });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(`${i + 1}쪽: 서버 ${r.status} ${j.error || ''} ${j.message || ''}`);
+      results[i] = j; done++; stream.textContent = `${files.length}쪽 중 ${done}쪽 읽음 · ${Math.round((Date.now() - t0) / 1000)}초`;
+    };
     let res;
     try {
-      const r = await fetch(CFG.omrUrl.replace(/\/$/, '') + '/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, files }), signal });
-      res = await r.json().catch(() => ({}));
-      if (!r.ok || !res.ok) throw new Error('omr ' + r.status + ' ' + (res.error || ''));
+      await Promise.all(Array.from({ length: Math.min(3, files.length) }, async () => { while (next < files.length) await one(next++); }));
+      res = { pages: results.flatMap(x => (x && x.pages) || []), seconds: Math.round((Date.now() - t0) / 1000) };
     } catch (e) { if (signal && signal.aborted) throw { code: 'cancelled' }; throw e; }
     finally { clearInterval(tick); }
     const songs = [];
@@ -3037,6 +3044,23 @@ Rules:
       const out = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9));
       return out || blob;
     } catch { return blob; }
+  }
+  async function loadPdf(file) {
+    if (!window.pdfjsLib) {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    if (!file.__pdf) file.__pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    return file.__pdf;
+  }
+  async function renderPdfPage(pdf, n, width, type = 'image/jpeg') {
+    const page = await pdf.getPage(n);
+    const vp0 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: width / vp0.width });
+    const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+    await page.render({ canvasContext: g, viewport: vp }).promise;
+    return new Promise(r => cv.toBlob(r, type, 0.92));
   }
   async function pdfToImages(file, max) {
     if (!window.pdfjsLib) {
@@ -3264,6 +3288,25 @@ Rules:
     const kindOf = f => /\.docx$/i.test(f.name) ? 'docx' : /\.json$/i.test(f.name) || f.type === 'application/json' ? 'json' : /\.(musicxml|xml|mxl)$/i.test(f.name) ? 'xml' : /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? 'pdf' : f.type.startsWith('image/') ? 'img' : 'other';
     preview.addEventListener('click', () => (files.length && files.every(f => kindOf(f) === 'img') ? cam : input).click());
     preview.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    // PDF는 읽을 쪽을 골라요 (책 한 권처럼 여러 곡이 든 PDF도 있어서)
+    const pdfSel = new Map();
+    const drawPdf = async (f, box) => {
+      try {
+        const pdf = await loadPdf(f);
+        const n = Math.min(pdf.numPages, 40);
+        if (!pdfSel.has(f)) pdfSel.set(f, new Set(n <= 3 ? Array.from({ length: n }, (_, i) => i + 1) : [1]));
+        const sel = pdfSel.get(f);
+        const grid = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:6px 0' });
+        box.append(el('span', { class: 'hint' }, n > 1 ? `읽을 쪽을 눌러서 골라 주세요 (한 곡의 쪽만 · 최대 ${maxImg}쪽) — 지금 ${sel.size}쪽 골랐어요` : ''), grid);
+        for (let i = 1; i <= n; i++) {
+          const on = sel.has(i);
+          const cell = el('button', { type: 'button', 'aria-pressed': on ? 'true' : 'false', 'aria-label': `${i}쪽`, style: `position:relative;padding:0;border:3px solid ${on ? 'var(--accent)' : 'transparent'};border-radius:8px;background:#fff;opacity:${on ? 1 : 0.55}`, onclick: e => { e.stopPropagation(); if (sel.has(i)) { if (sel.size > 1) sel.delete(i); } else if (sel.size < maxImg) sel.add(i); drawFiles(); } },
+            el('span', { style: 'position:absolute;left:3px;top:3px;background:#000a;color:#fff;border-radius:10px;padding:0 7px;font-size:12px' }, `${i}쪽${on ? ' ✓' : ''}`));
+          grid.append(cell);
+          renderPdfPage(pdf, i, 110, 'image/png').then(b => cell.prepend(el('img', { src: URL.createObjectURL(b), alt: '', style: 'width:84px;display:block;border-radius:5px' })));
+        }
+      } catch (e) { box.append(el('span', { class: 'hint' }, 'PDF 미리보기를 만들지 못했어요')); }
+    };
     const drawFiles = () => {
       preview.textContent = '';
       if (!files.length) { preview.append(el('b', {}, '📷 악보를 찍거나 골라 주세요'), el('span', { class: 'hint' }, `사진 여러 장이면 1쪽부터 차례로 찍어 주세요 (최대 ${maxImg}장) · PDF · 워드 · MusicXML · 곡 파일도 돼요`)); go.disabled = true; syncBtns(); return; }
@@ -3274,7 +3317,7 @@ Rules:
         el('span', { style: 'position:absolute;left:4px;top:4px;background:#000a;color:#fff;border-radius:10px;padding:0 7px;font-size:12px' }, `${i + 1}쪽`),
         el('button', { type: 'button', 'aria-label': `${i + 1}쪽 빼기`, style: 'position:absolute;right:2px;top:2px;border:0;border-radius:50%;width:26px;height:26px;background:#000a;color:#fff;font-size:14px', onclick: e => { e.stopPropagation(); files.splice(files.indexOf(f), 1); drawFiles(); } }, '✕'))));
       if (imgs.length) preview.append(row);
-      files.filter(f => kindOf(f) !== 'img').forEach(f => preview.append(el('b', {}, f.name)));
+      files.filter(f => kindOf(f) !== 'img').forEach(f => { preview.append(el('b', {}, f.name)); if (kindOf(f) === 'pdf') { const box = el('div', {}); preview.append(box); drawPdf(f, box); } });
       preview.append(el('span', { class: 'hint' }, imgs.length === files.length ? '다음 쪽이 있으면 “한 장 더 찍기”를 누르세요' : '다른 파일로 바꾸려면 누르세요'));
       go.disabled = false;
       syncBtns();
@@ -3307,7 +3350,7 @@ Rules:
     const clearBtn = el('button', { type: 'button', class: 'btn small', onclick: () => { files = []; drawFiles(); } }, '모두 지우기');
     const syncBtns = () => { camBtn.textContent = files.length && files.every(f => kindOf(f) === 'img') ? '📷 한 장 더 찍기' : '📷 사진 찍기'; };
     const kids = [
-      el('p', { class: 'hint' }, (window.STANDALONE ? 'MusicXML과 곡 파일은 바로 열려요. 사진·PDF·워드는 AI가 멜로디와 코드를 읽어요.' : 'MusicXML과 곡 파일은 바로 열려요. 사진과 PDF는 Claude가 멜로디와 코드를 읽어요.') + ' 30초~1분쯤 걸리고 가끔 틀린 음이 있을 수 있어서 읽은 뒤에 꼭 확인해 주세요.'),
+      el('p', { class: 'hint' }, (window.STANDALONE ? '사진·PDF는 악보 읽기 전문 프로그램이 음표를 읽어요. 한 쪽에 20초~1분 걸려요. 가끔 틀린 음이 있을 수 있으니 읽은 뒤에 확인해 주세요.' : 'MusicXML과 곡 파일은 바로 열려요. 사진과 PDF는 Claude가 멜로디와 코드를 읽어요. 읽은 뒤에 꼭 확인해 주세요.')),
       canAI ? null : el('div', { class: 'notice warn' }, el('span', {}, window.STANDALONE ? '악보 읽기(사진·PDF·워드)가 아직 연결되지 않았어요. Firebase 설정을 마치면 쓸 수 있어요. MusicXML과 곡 파일은 지금도 열 수 있어요.' : sample
         ? '지금 쓰는 기기의 Claude 앱에서는 앱이 사진·PDF를 Claude에게 보낼 수 없어요. 대신 Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요. 컴퓨터의 claude.ai에서 열어도 돼요.'
         : '이 화면에서는 Claude에게 악보 읽기를 부탁할 수 없어요. Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요.')),
@@ -3371,7 +3414,14 @@ Rules:
           ctrl = new AbortController();
           const fullWanted = !!(document.querySelector('#fullRead') || {}).checked;
           try {
-            const song = await readWithOMR(images.slice(0, maxImg), pdfs, (codeIn.value || trialCode || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), spin, ctrl.signal, fullWanted);
+            let pages = images.slice(0, maxImg);
+            for (const pf of pdfs) {
+              spin('PDF를 그림으로 바꾸는 중이에요…');
+              const pdf = await loadPdf(pf);
+              const sel = [...(pdfSel.get(pf) || new Set([1]))].sort((a, b) => a - b);
+              for (const n of sel) if (pages.length < maxImg) pages.push(await renderPdfPage(pdf, n, 2480));
+            }
+            const song = await readWithOMR(pages, [], (codeIn.value || trialCode || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), spin, ctrl.signal, fullWanted);
             if (song && song.bars.length) { close(); useSong(song, `악보를 읽었어요${note}. 틀린 음이 없는지 확인해 주세요.`); return; }
           } catch (e) { if (e && e.code === 'cancelled') throw e; console.warn('악보 읽기 서버 실패', e); omrErr = String((e && e.message) || e); }
           // 정확하지 않은 결과를 보여 주느니, 다시 찍어 달라고 해요 (AI로 음표를 대신 읽지 않아요)
