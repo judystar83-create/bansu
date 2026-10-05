@@ -3372,7 +3372,8 @@ Rules:
             const song = await readWithOMR(images.slice(0, maxImg), pdfs, (codeIn.value || trialCode || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), spin, ctrl.signal, fullWanted);
             if (song && song.bars.length) { close(); useSong(song, `악보를 읽었어요${note}. 틀린 음이 없는지 확인해 주세요.`); return; }
           } catch (e) { if (e && e.code === 'cancelled') throw e; console.warn('악보 읽기 서버 실패', e); }
-          spin('다른 방법으로 다시 읽는 중이에요…');
+          // 정확하지 않은 결과를 보여 주느니, 다시 찍어 달라고 해요 (AI로 음표를 대신 읽지 않아요)
+          return fail('이 악보는 읽지 못했어요. 악보가 화면에 꽉 차게, 밝고 반듯하게 다시 찍어 주세요. PDF가 있으면 PDF가 가장 정확해요.');
         }
         for (const pf of pdfs) {
           spin('PDF를 그림으로 바꾸는 중이에요…');
