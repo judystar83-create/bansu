@@ -3427,6 +3427,14 @@ Rules:
     const syncBtns = () => { camBtn.textContent = files.length && files.every(f => kindOf(f) === 'img') ? '📷 한 장 더 찍기' : '📷 사진 찍기'; };
     const kids = [
       el('p', { class: 'hint' }, (window.STANDALONE ? '사진·PDF는 악보 읽기 전문 프로그램이 음표를 읽어요. 한 쪽에 20초~1분 걸려요. 가끔 틀린 음이 있을 수 있으니 읽은 뒤에 확인해 주세요.' : 'MusicXML과 곡 파일은 바로 열려요. 사진과 PDF는 Claude가 멜로디와 코드를 읽어요. 읽은 뒤에 꼭 확인해 주세요.')),
+      el('details', { style: 'margin:6px 0 10px;border:1px solid var(--line, #ddd);border-radius:10px;padding:8px 12px' },
+        el('summary', { style: 'cursor:pointer;font-weight:700' }, '🎯 더 정확하게 읽고 싶다면 (PlayScore 2 앱)'),
+        el('ol', { style: 'margin:8px 0 0;padding-left:20px;line-height:1.7' },
+          el('li', {}, '휴대폰에 PlayScore 2 앱을 깔아요 (유료, 1주 무료 체험)'),
+          el('li', {}, 'PlayScore 2로 악보를 찍어 읽어요'),
+          el('li', {}, '공유(내보내기)에서 MusicXML 파일로 저장해요'),
+          el('li', {}, '위의 ‘파일을 골라 주세요’ 칸에서 그 파일을 고르면 바로 반주가 만들어져요')),
+        el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'PlayScore 2는 다른 회사의 앱이에요. 구독은 각자 해야 해요.')),
       canAI ? null : el('div', { class: 'notice warn' }, el('span', {}, window.STANDALONE ? '악보 읽기(사진·PDF·워드)가 아직 연결되지 않았어요. Firebase 설정을 마치면 쓸 수 있어요. MusicXML과 곡 파일은 지금도 열 수 있어요.' : sample
         ? '지금 쓰는 기기의 Claude 앱에서는 앱이 사진·PDF를 Claude에게 보낼 수 없어요. 대신 Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요. 컴퓨터의 claude.ai에서 열어도 돼요.'
         : '이 화면에서는 Claude에게 악보 읽기를 부탁할 수 없어요. Claude 대화창에 악보를 올리고 “곡 파일로 만들어 줘”라고 하면, 받은 곡 파일을 여기서 열 수 있어요.')),
