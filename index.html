@@ -3405,17 +3405,21 @@ Rules:
     cam.addEventListener('change', () => { addFiles(cam.files, true); cam.value = ''; });
     // 체험 코드 (원장님마다 하나)
     const TRIAL = window.TRIAL, CODE_KEY = 'bansu.trialCode';
+    // 원장님 전용 링크(?k=코드)로 열면 그 기기에 코드를 기억해 두고, 주소에서는 지워요
+    try { const u = new URL(location.href), k = (u.searchParams.get('k') || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (TRIAL && k) { store.write(CODE_KEY, k); u.searchParams.delete('k'); history.replaceState(null, '', u.pathname + u.search + u.hash); } } catch { }
     let trialCode = TRIAL ? (store.read(CODE_KEY) || '') : '';
+    const isOwner = () => store.read('bansu.owner') === trialCode && !!trialCode;
     const codeIn = el('input', { type: 'text', autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', placeholder: '받으신 체험 코드', 'aria-label': '체험 코드', class: 'pk', style: 'flex:1;min-width:0;font-family:var(--f-mono);letter-spacing:2px;padding:0 10px;text-align:left;text-transform:uppercase' });
     const codeMsg = el('p', { class: 'hint', style: 'margin:6px 0 0' });
     const codeOk = el('button', { type: 'button', class: 'btn small', onclick: async () => {
       codeMsg.textContent = '확인하는 중이에요…';
-      try { const r = await TRIAL.check(codeIn.value); trialCode = codeIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); store.write(CODE_KEY, trialCode); codeMsg.textContent = r.left > 0 ? `✓ 확인됐어요. 악보 읽기를 ${r.left > 1000 ? '제한 없이' : r.left + '번 더'} 할 수 있어요.` : '이 코드는 체험 횟수를 모두 썼어요.'; }
+      try { const r = await TRIAL.check(codeIn.value); trialCode = codeIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); store.write(CODE_KEY, trialCode); if (r.left > 1000) { store.write('bansu.owner', trialCode); setTimeout(() => { if (codeBox) codeBox.hidden = true; }, 1500); } codeMsg.textContent = r.left > 0 ? `✓ 확인됐어요. 악보 읽기를 ${r.left > 1000 ? '제한 없이' : r.left + '번 더'} 할 수 있어요.` : '이 코드는 체험 횟수를 모두 썼어요.'; }
       catch (e) { codeMsg.textContent = '코드가 맞지 않아요. 받으신 코드를 다시 확인해 주세요.'; }
     } }, '확인');
     codeIn.value = trialCode;
     const codeBox = TRIAL ? el('div', { style: 'margin:4px 0 8px' }, el('p', { class: 'sub', style: 'margin:0 0 4px' }, '체험 코드'), el('div', { style: 'display:flex;gap:6px' }, codeIn, codeOk), codeMsg) : null;
     if (TRIAL && trialCode) setTimeout(() => codeOk.click(), 0);
+    if (codeBox && isOwner()) codeBox.hidden = true; // 원장님 기기에서는 코드 칸을 보이지 않아요
     const camBtn = el('button', { type: 'button', class: 'btn primary', style: 'flex:1', onclick: () => cam.click() }, '📷 사진 찍기');
     const pickBtn = el('button', { type: 'button', class: 'btn', style: 'flex:1', onclick: () => input.click() }, '🖼 사진첩·파일');
     const srcRow = el('div', { style: 'display:flex;gap:8px;margin:10px 0' }, camBtn, pickBtn);
