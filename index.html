@@ -2554,8 +2554,29 @@ if (typeof module !== 'undefined') module.exports = Engine;
     const mt = rec.mimeType || type || 'audio/webm';
     return { blob: new Blob(parts, { type: mt }), ext: mt.includes('mp4') ? 'mp4' : 'webm' };
   }
+  // MP3: Suno 같은 다른 음악 앱에 올릴 때 가장 잘 받아 주는 형식 (lamejs, LGPL-3.0 · lib/lame.min.js)
+  async function encodeMP3(buf, onP) {
+    if (!window.lamejs) {
+      try { await loadScript('lib/lame.min.js'); } catch { }
+      if (!window.lamejs) await loadScript('https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js');
+    }
+    const sr = buf.sampleRate;
+    const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+    const enc = new lamejs.Mp3Encoder(2, sr, 192);
+    const N = 1152, l16 = new Int16Array(N), r16 = new Int16Array(N), parts = [];
+    const to16 = (src, dst, i, n) => { for (let k = 0; k < n; k++) { const s = Math.max(-1, Math.min(1, src[i + k])); dst[k] = s < 0 ? s * 0x8000 : s * 0x7fff; } };
+    for (let i = 0; i < buf.length; i += N) {
+      const n = Math.min(N, buf.length - i);
+      to16(L, l16, i, n); to16(R, r16, i, n);
+      const b = enc.encodeBuffer(n === N ? l16 : l16.subarray(0, n), n === N ? r16 : r16.subarray(0, n));
+      if (b.length) parts.push(new Uint8Array(b));
+      if (i % (N * 200) === 0) { onP && onP(i / buf.length); await new Promise(r => setTimeout(r, 0)); }
+    }
+    const end = enc.flush(); if (end.length) parts.push(new Uint8Array(end));
+    return { blob: new Blob(parts, { type: 'audio/mpeg' }), ext: 'mp3' };
+  }
   let downloads = null, sample = null, sampleCaps = null;
-  async function exportAudio() {
+  async function exportAudio(kind) {
     stopPlay();
     const title = S.song.title || '반주';
     const st = E.STYLES[S.style].name;
@@ -2570,7 +2591,8 @@ if (typeof module !== 'undefined') module.exports = Engine;
       const rendered = await renderOffline(arr, 48000);
       setP(0.3, '파일로 바꾸는 중이에요…');
       let out;
-      try { out = await encodeFast(rendered, p => setP(0.3 + p * 0.65)); }
+      if (kind === 'mp3') out = await encodeMP3(rendered, p => setP(0.3 + p * 0.65));
+      else try { out = await encodeFast(rendered, p => setP(0.3 + p * 0.65)); }
       catch (e) {
         setP(0.3, `이 기기에서는 곡 길이만큼(${fmt(arr.duration)}) 녹음해서 만들어요. 화면을 켜 둔 채 기다려 주세요.`);
         out = await encodeRealtime(rendered, (p) => setP(0.3 + p * 0.65));
@@ -2604,7 +2626,8 @@ if (typeof module !== 'undefined') module.exports = Engine;
     const { close } = sheet('파일로 저장', [
       el('p', { class: 'hint' }, '지금 고친 코드·스타일·악기·빠르기가 그대로 들어가요.'),
       el('div', { class: 'lib' },
-        opt('음악 파일 (mp4)', '반주 소리. 영상·음악회에서 바로 틀 수 있어요', exportAudio),
+        opt('음악 파일 (mp4)', '반주 소리. 영상·음악회에서 바로 틀 수 있어요', () => exportAudio('mp4')),
+        opt('음악 파일 (MP3)', 'Suno 같은 AI 음악 앱에 올려 소리를 더 풍성하게 바꿀 때', () => exportAudio('mp3')),
         opt('악보 그림 (PNG)', '멜로디와 바뀐 코드를 적은 악보', exportPNG),
         opt('MIDI 파일 (zip으로 묶음)', '개러지밴드·뮤즈스코어에서 음표 하나하나 고칠 때', exportMIDI),
         opt('곡 파일 (백업)', '이 앱에서 다시 열어 이어서 작업할 때', exportSongFile))

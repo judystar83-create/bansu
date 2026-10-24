@@ -5,3 +5,4 @@
 - `platform.js`: 파일 저장과 악보 읽기(Firebase AI) 연결
 - `firebase-config.js`: Firebase 설정 값
 - `s/`: 악기 소리 파일
+- `lib/lame.min.js`: MP3 파일 만들기 ([lamejs](https://github.com/zhuker/lamejs) 1.2.1, LGPL-3.0, 수정 없이 사용)
