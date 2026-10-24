@@ -111,6 +111,11 @@ async function fs() {
   return fsMod;
 }
 const norm = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// 원장님 코드만 무제한이에요. 코드 자체는 적어 두지 않고, 알아볼 수 없게 바꾼 값(해시)만 비교해요.
+const OWNER_HASHES = ['3299b09ea7dd0ac683920773cdaa81565dadfd16167bcb3bd2b25f42977ed73e'];
+async function isOwnerCode(code) {
+  try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('bansu-owner|' + code)); const h = Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join(''); return OWNER_HASHES.includes(h); } catch { return false; }
+}
 window.TRIAL = cfg && cfg.trial ? {
   // 코드 확인: 남은 횟수를 알려 줘요 (처음 쓰는 코드면 등록)
   async check(code) {
@@ -119,7 +124,7 @@ window.TRIAL = cfg && cfg.trial ? {
     let snap;
     try { snap = await f.getDoc(ref); } catch (e) { throw { code: 'bad_code', message: e.message }; }
     if (!snap.exists()) {
-      const limit = code.startsWith('BEEREUMUSIC') ? 100000 : (cfg.trialLimit || 3);
+      const limit = (await isOwnerCode(code)) ? 100000 : (cfg.trialLimit || 3);
       try { await f.setDoc(ref, { used: 0, limit, created: f.serverTimestamp() }); } catch (e) { throw { code: 'bad_code', message: e.message }; }
       return { left: limit, limit };
     }
